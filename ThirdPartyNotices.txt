@@ -1,0 +1,41 @@
+PDG decoding adapted from 100apps/pdg_decoder
+https://github.com/100apps/pdg_decoder
+Commit: aa6f00258534e537f1be06223fb4aee2772e3546
+
+MIT License
+
+Copyright (c) 2026 100apps
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------
+DjVuLibre 3.5.30
+https://djvu.sourceforge.net/
+Source: https://downloads.sourceforge.net/project/djvu/DjVuLibre/3.5.30/djvulibre-3.5.30.tar.gz
+
+The bundled standalone programs ddjvu and djvused are built from unmodified
+DjVuLibre source. They are licensed under the GNU General Public License,
+version 2 or (at your option) any later version. Their full corresponding
+source archive, GPL text, and the exact build script are included in
+ThirdParty/DjVuLibre in the source distribution, and in the app at
+Contents/Resources/DjVuLibre. Copyright notices are retained in that source.
+
+The reader invokes these programs as separate processes. No DjVuLibre
+library is linked into the Swift reader executable. Build flags disable
+external JPEG/TIFF/X dependencies; RGB PPM is used for page transfer.
