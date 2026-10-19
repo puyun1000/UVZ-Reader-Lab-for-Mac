@@ -2,6 +2,12 @@
 
 版本 0.11.0 · 2026.10.18
 
+## 项目缘起与致谢
+
+UVZ Reader Lab 以阿虚开发的 macOS「UVZ阅读器」为开发基础和首要参考，感谢阿虚持续维护该应用。据项目维护者反馈，原应用已更新至 0.2.1；本项目早期研究的是更早版本，未对 0.2.1 逐项验证兼容性。
+
+感谢老马（马健）及其 UnicornViewer、PdgCntEditor、PdgRenamer、PdgThumbViewer 等 Windows 工具提供的阅读、目录和 PDG 页面整理思路。作者资料见 https://www.cnblogs.com/stronghorse/ 。本应用独立实现；实际改编或随包使用的组件另见项目的 ThirdPartyNotices.txt。
+
 ## 打开图书与窗口
 
 支持 ZIP／UVZ、PDF、DjVu（djvu／djv）、多页 TIFF、单个 PDG 和直接包含 PDG 页面的文件夹。通过“文件 → 打开电子书…”、拖入文件或“最近打开”进入阅读。可多选图书，每本书使用独立窗口。
