@@ -6,9 +6,9 @@
 
 ## 项目缘起与致谢
 
-**阿虚开发的 macOS「UVZ阅读器」是本项目开发的基础和首要参考。** 感谢阿虚制作并持续更新这款应用；UVZ Reader Lab 从它的阅读体验与功能出发，按本项目的需求独立实现。据项目维护者反馈，阿虚的应用已更新至 0.2.1；本项目早期研究记录对应较早的 0.1.9 版，尚未对 0.2.1 做逐项兼容性验证。由于未找到可核实的作者发布页面，这里暂不附下载链接。
+**网友阿虚开发的 macOS「UVZ阅读器」是本项目开发的基础和首要参考。** 感谢阿虚制作并持续更新这款应用；UVZ Reader Lab 从它的阅读体验与功能出发，按本项目的需求独立实现。截至目前（2026-10-19），阿虚的应用已更新至 0.2.1；本项目早期研究记录对应较早的 0.1.9 版，后续持续跟进其更新进展。
 
-也感谢**老马（马健）**开发的 Windows 工具：[UnicornViewer、PdgCntEditor、PdgRenamer、PdgThumbViewer](https://www.cnblogs.com/stronghorse/) 等。它们的作者说明帮助本项目理解 PDG 页面分类、目录编辑与阅读导航；具体参考范围见[设计参考记录](ReferenceDesign.md)。本项目没有打包阿虚或老马的应用程序、代码及界面资源。实际改编或随包使用的第三方代码和工具另见[第三方声明](ThirdPartyNotices.txt)。
+也感谢网上读书园地的**stronghorse（老马）**开发的系列 Windows 工具：[UnicornViewer、PdgCntEditor、PdgRenamer、PdgThumbViewer](https://www.cnblogs.com/stronghorse/) 等。它们的作者说明帮助本项目理解 PDG 页面分类、目录编辑与阅读导航；具体参考范围见[设计参考记录](ReferenceDesign.md)。本项目没有打包阿虚或老马的应用程序、代码及界面资源。实际改编或随包使用的第三方代码和工具另见[第三方声明](ThirdPartyNotices.txt)。
 
 ## 系统要求与安装
 
@@ -42,6 +42,4 @@ python3 -m venv .venv
 
 完整操作说明见 [用户指南](Resources/UserGuide.md)，[版本说明](Resources/ReleaseNotes.md)，以及 [原始详细说明](Docs/OriginalUserGuide.md)。不支持 ZIP64、加密/分卷 ZIP、密码 PDF、EPUB 和部分历史 PDG 编码。
 
-PDG 解码部分改编自 [100apps/pdg_decoder](https://github.com/100apps/pdg_decoder)，保留 MIT 许可。独立进程 `ddjvu`、`djvused` 来自 DjVuLibre，适用 GPL-2.0-or-later；完整对应源码、许可与构建脚本位于 `ThirdParty/DjVuLibre/`，并随应用分发。详见 [第三方声明](ThirdPartyNotices.txt)。本次归档未为其余原创代码另行指定开源许可，仓库保持私有。
-
-归档过程仅补充文档与忽略规则，未改变应用功能。该目录未发现既有 Git 历史，首次归档建立初始提交。
+PDG 解码部分改编自 [100apps/pdg_decoder](https://github.com/100apps/pdg_decoder)，保留 MIT 许可。独立进程 `ddjvu`、`djvused` 来自 DjVuLibre，适用 GPL-2.0-or-later；完整对应源码、许可与构建脚本位于 `ThirdParty/DjVuLibre/`，并随应用分发。详见 [第三方声明](ThirdPartyNotices.txt)。
