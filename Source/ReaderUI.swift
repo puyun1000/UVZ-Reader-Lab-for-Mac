@@ -3,7 +3,7 @@ import CryptoKit
 import VisionKit
 
 final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1160, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+    let window = ChineseWindow(contentRect: NSRect(x: 0, y: 0, width: 1160, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     let document = PageDocumentView()
     let scroll = ReaderScrollView()
     let outline = NSOutlineView()
@@ -11,9 +11,15 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private(set) var requestedURL: URL?
     var state = ReadingState()
     var smokeMode = false
+    var onConvert: (([URL])->Void)?
     var onOpenFiles: (([URL]) -> Void)?
     var onCloseWindow: ((ReaderController) -> Void)?
     var onBookChanged: (() -> Void)?
+    private let emptyView = ReaderEmptyView(),emptyRecent = NSStackView()
+    private let displayOptions = NSPopover()
+    let defaultColorButton=NSButton(title:"设为默认",target:nil,action:nil)
+    let fitWidthButton=NSButton(title:"宽度",target:nil,action:nil),fitHeightButton=NSButton(title:"高度",target:nil,action:nil),fitWholeButton=NSButton(title:"整页",target:nil,action:nil)
+    private var bookBars: [NSView] = []
     private let root = DropRootView(frame: .zero)
     private let toolbar = FlowToolbar()
     private var toolbarHeight: NSLayoutConstraint!
@@ -40,6 +46,17 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private let zoomLabel = NSTextField(labelWithString: "100%")
     private let defaults = UserDefaults.standard
     private var stateKey = ""
+    private(set) var onlineReferences: OnlineReferences?
+    @objc func showOnlineReferences() {
+        if let existing=onlineReferences {existing.show();return}
+        let source=book,controller=OnlineReferences(ssid:book.map {FilenameDraft(book:$0).ss} ?? "");onlineReferences=controller
+        if let source {controller.onDirectory = {[weak self] text in
+            guard let self,self.book === source else{return false}
+            if self.editor == nil {self.showBookEditor(info:false)}
+            return self.editor?.insertReferenceContents(text) ?? false
+        }}
+        controller.onClosed = {[weak self] in self?.onlineReferences=nil};controller.show()
+    }
     private(set) var editor: BookEditor?
     private(set) var pageRepair: PageRepairWindow?
     private let repairButton = NSButton(title:"页面编码校对…",target:nil,action:nil)
@@ -88,6 +105,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
             if self.ocrEnabled != desired { self.toggleOCR() }
         }
         window.title = "UVZ Reader Lab"
+        window.toolbarStyle = .unified
         window.minSize = NSSize(width: 760, height: 540)
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -110,7 +128,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         scroll.contentView.postsBoundsChangedNotifications = true
         scroll.contentView.postsFrameChangedNotifications = true
         scroll.onEdge = { [weak self] direction in self?.step(direction) }
-        document.onDoubleClick = { [weak self] event in self?.doubleClickPage(event) }
+        document.onDoubleClick = { [weak self] event in self?.doubleClickPage(event) };document.onContextMenu = {[weak self] in self?.pageContextMenu()}
         renameButton.target = self; renameButton.action = #selector(renameZip); renameButton.bezelStyle = .rounded
         filenameLabel.lineBreakMode = .byTruncatingMiddle; filenameLabel.font = .systemFont(ofSize: 12); filenameLabel.isSelectable = true
         filenameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -121,6 +139,8 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         auditButton.target = self; auditButton.action = #selector(repairPages); auditButton.bezelStyle = .inline; auditButton.contentTintColor = .systemOrange; auditButton.isHidden = true
         readingControls.append(repairButton)
         inspectionQueue.maxConcurrentOperationCount = 1; inspectionQueue.qualityOfService = .utility
+        renameButton.title="图书信息…";renameButton.image=NSImage(systemSymbolName:"info.circle",accessibilityDescription:"书籍信息与重命名");renameButton.imagePosition = .imageLeading
+        repairButton.title="页面校对…"
         let filebar = NSStackView(views: [filenameLabel, repairButton, region, renameButton]); filebar.spacing = 10
         let body = NSStackView(views: [sidebar, scroll]); body.spacing = 0
         status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabelColor; status.lineBreakMode = .byTruncatingMiddle
@@ -138,6 +158,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12), footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
             footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8)
         ])
+        bookBars=[toolbar,filebar,footer];buildEmptyState()
         toolbar.onHeight = { [weak self] height in
             guard let self, abs(self.toolbarHeight.constant - height) > 0.5 else { return }
             self.toolbarHeight.constant = height
@@ -191,16 +212,47 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         layoutButtons.setAccessibilityLabel("页面显示方式")
         rtlButton.target = self; rtlButton.action = #selector(directionChanged)
         fitPopup.addItems(withTitles: ["适合宽度", "适合整页", "适合高度", "原始大小"]); fitPopup.target = self; fitPopup.action = #selector(fitChanged)
-        colorPopup.addItems(withTitles: ["页面：跟随系统", "页面：原色", "页面：反色"]); colorPopup.target = self; colorPopup.action = #selector(colorChanged)
+        colorPopup.addItems(withTitles: ["跟随系统", "原色", "反色"]); colorPopup.target = self; colorPopup.action = #selector(colorChanged)
         zoomSlider.target = self; zoomSlider.action = #selector(zoomChanged); zoomSlider.isContinuous = false
         zoomSlider.widthAnchor.constraint(equalToConstant: 100).isActive = true
         zoomLabel.widthAnchor.constraint(equalToConstant: 43).isActive = true; zoomLabel.alignment = .right
         let whole = button("", #selector(fitWhole), symbol: "doc.viewfinder"); whole.toolTip = "适合整页"; whole.setAccessibilityLabel("适合整页"); whole.widthAnchor.constraint(equalToConstant: 30).isActive = true
         let width = button("", #selector(fitWidth), symbol: "arrow.left.and.right"); width.toolTip = "适合宽度"; width.setAccessibilityLabel("适合宽度"); width.widthAnchor.constraint(equalToConstant: 30).isActive = true
-        toolbar.groups = [group([open, close]), group([previous, pageTypePopup, pageField, countLabel, next]),
-                          group([modePopup, layoutButtons]), group([coverButton, rtlButton]), group([fitPopup, whole, width]), group([zoomSlider, zoomLabel, colorPopup])]
-        readingControls = [close, previous, next, pageTypePopup, pageField, modePopup, layoutButtons, coverButton, rtlButton, fitPopup, colorPopup, zoomSlider, whole, width]
+        let options=button("图像调整",#selector(showDisplayOptions),symbol:"slider.horizontal.3")
+        let conversion=button("转换",#selector(convertCurrent),symbol:"doc.badge.arrow.up")
+        let contents=button("",#selector(toggleSidebar),symbol:"sidebar.left");contents.toolTip="显示或隐藏目录";contents.setAccessibilityLabel("显示或隐藏目录")
+        let smaller=button("",#selector(smallerZoom),symbol:"minus.magnifyingglass"),larger=button("",#selector(largerZoom),symbol:"plus.magnifyingglass")
+        smaller.setAccessibilityLabel("缩小页面");larger.setAccessibilityLabel("放大页面")
+        for (button,title,action,symbol) in [(fitWidthButton,"适合宽度",#selector(fitWidth),"arrow.left.and.right"),(fitHeightButton,"适合高度",#selector(fitHeight),"arrow.up.and.down"),(fitWholeButton,"适合整页",#selector(fitWhole),"doc.viewfinder")] {button.target=self;button.action=action;button.bezelStyle = .rounded;button.image=NSImage(systemSymbolName:symbol,accessibilityDescription:title);button.imagePosition = .imageLeading;button.toolTip=title;button.setAccessibilityLabel(title);button.setButtonType(.toggle)}
+        defaultColorButton.target=self;defaultColorButton.action = #selector(setDefaultPageColor);defaultColorButton.bezelStyle = .rounded;defaultColorButton.toolTip="将当前配色记为默认，后续打开图书使用此配色"
+        toolbar.groups = [group([contents,open,close]),group([previous,pageTypePopup,pageField,countLabel,next]),group([layoutButtons]),group([fitWidthButton,fitHeightButton,fitWholeButton]),group([smaller,zoomLabel,larger]),group([coverButton,rtlButton]),group([colorPopup,defaultColorButton]),group([options,conversion])]
+        readingControls = [close,previous,next,pageTypePopup,pageField,modePopup,layoutButtons,coverButton,rtlButton,fitPopup,colorPopup,zoomSlider,whole,width,smaller,larger,options,fitWidthButton,fitHeightButton,fitWholeButton,defaultColorButton]
+        let rotate=button("旋转90°",#selector(rotatePage),symbol:"rotate.right"),cropMore=button("增加裁边",#selector(cropMore)),cropLess=button("减小裁边",#selector(cropLess))
+        readingControls += [rotate,cropMore,cropLess]
+        let title=NSTextField(labelWithString:"阅读显示");title.font = .systemFont(ofSize:15,weight:.semibold)
+        let box=NSStackView(views:[title,group([zoomSlider,zoomLabelCopy()]),group([rotate,cropMore,cropLess])]);box.orientation = .vertical;box.alignment = .leading;box.spacing=14;box.edgeInsets = .init(top:18,left:18,bottom:18,right:18)
+        let host=NSViewController();host.view=box;displayOptions.contentViewController=host;displayOptions.behavior = .transient
     }
+    private func zoomLabelCopy()->NSTextField {let text=NSTextField(labelWithString:"缩放比例");text.font = .systemFont(ofSize:11);text.textColor = .secondaryLabelColor;return text}
+    @objc private func showDisplayOptions(_ sender:NSButton) {displayOptions.show(relativeTo:sender.bounds,of:sender,preferredEdge:.maxY)}
+    @objc private func cropMore() {state.crop=min(0.15,state.crop+0.01);invalidateImages();relayout(preservePosition:true);save()}
+    @objc private func cropLess() {state.crop=max(0,state.crop-0.01);invalidateImages();relayout(preservePosition:true);save()}
+    @objc private func smallerZoom() {state.zoom=max(0.25,state.zoom/1.25);applyGeometryOptions()}
+    @objc private func largerZoom() {state.zoom=min(4,state.zoom*1.25);applyGeometryOptions()}
+    @objc func convertCurrent() {onConvert?(book.map {[$0.url]} ?? [])}
+    private func buildEmptyState() {
+        let icon=NSImageView();icon.image=NSImage(systemSymbolName:"books.vertical",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:42,weight:.light));icon.widthAnchor.constraint(equalToConstant:58).isActive=true;icon.contentTintColor = .secondaryLabelColor;icon.imageScaling = .scaleProportionallyUpOrDown;icon.heightAnchor.constraint(equalToConstant:58).isActive=true
+        let title=NSTextField(labelWithString:"阅读与整理你的图书");title.font = .systemFont(ofSize:24,weight:.semibold);title.alignment = .center
+        let subtitle=NSTextField(wrappingLabelWithString:"打开或拖入电子书开始阅读，也可以批量转换为PDF。\n支持UVZ、ZIP、PDG、PDF、DjVu和多页TIFF。")
+        subtitle.alignment = .center;subtitle.font = .systemFont(ofSize:13);subtitle.textColor = .secondaryLabelColor
+        let open=button("打开图书…",#selector(chooseBook),symbol:"folder"),convert=button("转换工作台…",#selector(convertCurrent),symbol:"doc.badge.arrow.up")
+        let actions=group([open,convert]);emptyRecent.orientation = .vertical;emptyRecent.alignment = .centerX;emptyRecent.spacing=8
+        let stack=NSStackView(views:[icon,title,subtitle,actions,emptyRecent]);stack.orientation = .vertical;stack.alignment = .centerX;stack.spacing=18;stack.translatesAutoresizingMaskIntoConstraints=false
+        emptyView.translatesAutoresizingMaskIntoConstraints=false;root.addSubview(emptyView);emptyView.addSubview(stack)
+        NSLayoutConstraint.activate([emptyView.leadingAnchor.constraint(equalTo:root.leadingAnchor),emptyView.trailingAnchor.constraint(equalTo:root.trailingAnchor),emptyView.topAnchor.constraint(equalTo:root.topAnchor),emptyView.bottomAnchor.constraint(equalTo:root.bottomAnchor),stack.centerXAnchor.constraint(equalTo:emptyView.centerXAnchor),stack.centerYAnchor.constraint(equalTo:emptyView.centerYAnchor),stack.widthAnchor.constraint(equalToConstant:600),subtitle.widthAnchor.constraint(equalTo:stack.widthAnchor)])
+    }
+    @objc private func openRecentEmpty(_ sender:NSButton) {if let path=sender.toolTip {onOpenFiles?([URL(fileURLWithPath:path)])}}
+
     private func buildSidebar() {
         let title = NSTextField(labelWithString: "目录"); title.font = .systemFont(ofSize: 13, weight: .semibold)
         let options = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -211,13 +263,16 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         let edit = button("编辑目录…", #selector(editBook))
         let header = NSStackView(views: [title, NSView(), edit, options]); header.spacing = 4
         let column = NSTableColumn(identifier: .init("contents")); outline.addTableColumn(column); outline.outlineTableColumn = column
-        outline.headerView = nil; outline.rowHeight = 27; outline.indentationPerLevel = 14
+        outline.headerView = nil; outline.rowHeight = 30; outline.indentationPerLevel = 14
         outline.dataSource = self; outline.delegate = self; outline.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         let list = NSScrollView(); list.documentView = outline; list.hasVerticalScroller = true; list.autohidesScrollers = true
         note.font = .systemFont(ofSize: 11); note.textColor = .secondaryLabelColor
         sidebar.orientation = .vertical; sidebar.alignment = .leading; sidebar.spacing = 8; sidebar.edgeInsets = .init(top: 8, left: 10, bottom: 8, right: 10)
         for view in [header, note, list] { sidebar.addArrangedSubview(view); view.widthAnchor.constraint(equalTo: sidebar.widthAnchor, constant: -20).isActive = true }
-        sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 240); sidebarWidth.isActive = true
+        let background=NSVisualEffectView();background.material = .sidebar;background.blendingMode = .withinWindow;background.state = .active;background.translatesAutoresizingMaskIntoConstraints=false
+        sidebar.addSubview(background,positioned:.below,relativeTo:nil)
+        NSLayoutConstraint.activate([background.leadingAnchor.constraint(equalTo:sidebar.leadingAnchor),background.trailingAnchor.constraint(equalTo:sidebar.trailingAnchor),background.topAnchor.constraint(equalTo:sidebar.topAnchor),background.bottomAnchor.constraint(equalTo:sidebar.bottomAnchor)])
+        sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 260); sidebarWidth.isActive = true
         list.heightAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
     }
     func open(_ url: URL, preserving savedState: ReadingState? = nil) {
@@ -243,6 +298,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
                     self.pageTypePopup.addItem(withTitle:"物理页"); self.pageTypePopup.lastItem?.tag = -1
                     self.stateKey = "book:" + SHA256.hash(data: Data(book.url.path.utf8)).map { String(format: "%02x", $0) }.joined()
                     self.state = self.reopenState ?? (self.smokeMode ? ReadingState() : (AppSettings().rememberPosition ? self.defaults.data(forKey: self.stateKey).flatMap { try? JSONDecoder().decode(ReadingState.self, from: $0) } : nil) ?? AppSettings().readingState)
+                    if !self.smokeMode {self.state.color=AppSettings().pageColor}
                     self.reopenState = nil; self.save()
                     self.state.page = min(self.state.page, book.pages.count - 1)
                     self.sizes = Array(repeating: CGSize(width: 1200, height: 1800), count: book.pages.count)
@@ -353,6 +409,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         if clearSession { onBookChanged?() }
     }
     func windowWillClose(_ notification: Notification) {
+        onlineReferences?.close()
         save(); session = UUID(); queue.cancelAllOperations(); ocrTasks.values.forEach { $0.cancel() }; ocrDelay?.cancel(); saveDelay?.cancel()
         onCloseWindow?(self)
     }
@@ -418,6 +475,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     @objc func zoomChanged() { state.zoom = zoomSlider.doubleValue; applyGeometryOptions() }
     @objc func zoomIn() { state.zoom = min(4, state.zoom * 1.2); applyGeometryOptions() }
     @objc func zoomOut() { state.zoom = max(0.25, state.zoom / 1.2); applyGeometryOptions() }
+    @objc func setDefaultPageColor() {AppSettings().set(state.color,"color");updateControls();status.stringValue="默认页面配色已保存，后续打开图书时生效。"}
     @objc func colorChanged() { state.color = colorPopup.indexOfSelectedItem; invalidateImages(); updateControls(); save() }
     @objc func toggleContinuous() { state.continuous.toggle(); applyGeometryOptions() }
     @objc func toggleDoublePages() { state.doublePages.toggle(); applyGeometryOptions() }
@@ -456,6 +514,15 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     }
     private func applyGeometryOptions() { updateControls(); relayout(preservePosition: true); save() }
     private func updateControls() {
+        let empty=book == nil && requestedURL == nil
+        emptyView.isHidden = !empty;bookBars.forEach {$0.isHidden=empty}
+        if empty {
+            emptyRecent.arrangedSubviews.forEach {emptyRecent.removeArrangedSubview($0);$0.removeFromSuperview()}
+            let recent=NSDocumentController.shared.recentDocumentURLs.filter {FileManager.default.fileExists(atPath:$0.path)}.prefix(3)
+            if !recent.isEmpty {let title=NSTextField(labelWithString:"最近阅读");title.font = .systemFont(ofSize:12,weight:.semibold);title.textColor = .secondaryLabelColor;emptyRecent.addArrangedSubview(title)}
+            for url in recent {let b=button(url.deletingPathExtension().lastPathComponent,#selector(openRecentEmpty),symbol:"book.closed");b.toolTip=url.path;b.cell?.lineBreakMode = .byTruncatingMiddle;b.widthAnchor.constraint(lessThanOrEqualToConstant:580).isActive=true;emptyRecent.addArrangedSubview(b)}
+        }
+
         readingControls.forEach { $0.isEnabled = book != nil }
         if let book, let map = pageMap {
             let group = physicalNavigation ? -1 : book.pages[state.page].key.group
@@ -473,6 +540,9 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         renameButton.isEnabled = book != nil
         filenameLabel.stringValue = book?.url.lastPathComponent ?? "尚未打开书籍"; filenameLabel.toolTip = book?.url.path
         fitPopup.selectItem(at: state.fit); colorPopup.selectItem(at: state.color)
+        for (index,title) in ["跟随系统","原色","反色"].enumerated() {colorPopup.item(at:index)?.title=title+(index == AppSettings().pageColor ? " · 默认" : "")}
+        fitWidthButton.state=state.fit == 0 ? .on : .off;fitHeightButton.state=state.fit == 2 ? .on : .off;fitWholeButton.state=state.fit == 1 ? .on : .off
+        defaultColorButton.isEnabled=book != nil && state.color != AppSettings().pageColor
         zoomSlider.doubleValue = state.zoom; zoomLabel.stringValue = "\(Int((state.zoom * 100).rounded()))%"
         outline.isEnabled = !window.hasDocumentDialog
         if window.hasDocumentDialog { readingControls.forEach { $0.isEnabled = false }; renameButton.isEnabled = false }
@@ -556,7 +626,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         guard let frame = layout.frames[index] else { return }
         if let tile = tiles[index] { tile.frame = frame; return }
         let tile = PageTile(image: image)
-        tile.onDoubleClick = { [weak self] event in self?.doubleClickPage(event) }; tile.frame = frame
+        tile.onContextMenu = {[weak self] in self?.pageContextMenu(index:index)};tile.onDoubleClick = { [weak self] event in self?.doubleClickPage(event) }; tile.frame = frame
         document.addSubview(tile); tiles[index] = tile
         if ocrEnabled, let analysis = analysisCache.object(forKey: analysisKey(index)) { tile.overlay.analysis = analysis }
         if index == state.page, let raw = rawCache.object(forKey:NSNumber(value:index)) { checkPageMargin(index,image:raw) }
@@ -652,8 +722,20 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         }
         return true
     }
+    func pageContextMenu(index:Int?=nil)->NSMenu {
+        let menu=NSMenu(title:"阅读操作")
+        func add(_ title:String,_ action:Selector) {let item=NSMenuItem(title:title,action:action,keyEquivalent:"");item.target=self;item.tag=index ?? state.page;menu.addItem(item)}
+        add("上一页",#selector(previousPage));add("下一页",#selector(nextPage));menu.addItem(.separator())
+        add("适合宽度",#selector(fitWidth));add("适合高度",#selector(fitHeight));add("适合整页",#selector(fitWhole));add("原始大小",#selector(actualSize));menu.addItem(.separator())
+        add("复制页面图像",#selector(copyContextPage));add("框选识别目录…",#selector(recognizeContextRegion));menu.addItem(.separator())
+        add("编辑目录…",#selector(editBook));add("书籍信息与重命名…",#selector(editInfo));add("复制图书路径",#selector(copyBookPath));return menu
+    }
+    @objc private func copyContextPage(_ item:NSMenuItem) {if let image=tiles[item.tag]?.imageView.image {NSPasteboard.general.clearContents();NSPasteboard.general.writeObjects([image])}}
+    @objc private func recognizeContextRegion(_ item:NSMenuItem) {jump(item.tag);recognizeRegion()}
+    @objc private func copyBookPath() {if let book {NSPasteboard.general.clearContents();NSPasteboard.general.setString(book.url.path,forType:.string)}}
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(showOnlineReferences): return !window.hasDocumentDialog
         case #selector(repairPages): return book?.canCorrectPages == true && !window.hasDocumentDialog
         case #selector(editBook): return book != nil && !window.hasDocumentDialog
         case #selector(renameZip), #selector(editInfo): return book != nil && !window.hasDocumentDialog

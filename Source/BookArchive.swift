@@ -3,6 +3,7 @@ import CoreFoundation
 import PDFKit
 import ImageIO
 import CryptoKit
+import Darwin
 
 @_silgen_name("lab_inflate")
 private func inflateRaw(_ source: UnsafePointer<UInt8>, _ count: Int,
@@ -211,6 +212,19 @@ final class BookArchive {
         return try PageDecoder.image(pageData(at: index))
     }
 
+    /// Conversion reads the same decoded payload without applying reading appearance options.
+    func exportData(at index: Int) throws -> Data? {
+        guard pages.indices.contains(index) else {throw ReaderFailure("页码超出范围。")}
+        if let loose { return loose.kind == "pdf" || ["djvu","djv"].contains(loose.kind) ? nil : try loose.pageData(at:index) }
+        return try pageData(at:index)
+    }
+    func exportImage(at index: Int) throws -> CGImage {
+        if let loose,["djvu","djv"].contains(loose.kind) { return try DjVuTools.render(url,page:index+1,fullResolution:true) }
+        return try pageImage(at:index)
+    }
+    var exportImageIndex: (Int)->Int { { [self] index in ["tif","tiff"].contains(loose?.kind ?? "") ? index : 0 } }
+    var hasExportContentsOverride: Bool {loose?.storedMetadata["bookcontents.dat"] != nil}
+    var exportNeedsPDFContext: Bool {url.pathExtension.lowercased() == "pdf" || pages.contains {$0.pdfPage != nil}}
     private static func prefix(_ entry: ArchiveEntry, from data: Data) throws -> Data {
         guard entry.flags & 1 == 0, entry.method == 0 || entry.method == 8 else { return Data() }
         guard entry.size <= maxEntryBytes, entry.packedSize <= maxEntryBytes,
@@ -412,6 +426,14 @@ extension BookArchive {
     var usesPDGNumbering: Bool { loose == nil || loose?.kind == "folder" || loose?.kind == "pdg" }
     /// Saves both DAT files as one ZIP replacement, retaining compressed page bytes unchanged.
     @discardableResult func saveEdits(_ draft: BookEditDraft, backup: Bool = false, preserveDates: Bool = true, writeContents: Bool = true, writeInfo: Bool = true) throws -> [URL] {
+        if storesNativeInformation,writeInfo {
+            _ = try updateInformation(stem:url.deletingPathExtension().lastPathComponent,metadata:draft.metadata,backup:backup,preserveDates:preserveDates)
+            if writeContents {
+                let refreshed = try BookArchive(url:url)
+                return try refreshed.saveEdits(draft,backup:backup,preserveDates:preserveDates,writeContents:true,writeInfo:false)
+            }
+            return []
+        }
         let sourceDates = try FileDateRecord(url)
         let chapters = writeContents ? try draft.validated(for: self) : []
         let info = writeInfo ? try draft.encodedInfo() : Data()
@@ -571,6 +593,42 @@ extension BookArchive {
         }
         return destination
     }
+    private func saveNativeInformation(_ metadata: [String:String],to destination: URL,source: LooseBook,backup: Bool,preserveDates: Bool) throws -> URL {
+        let fm = FileManager.default, dates = try FileDateRecord(url)
+        func unchanged() throws {
+            guard Data(SHA256.hash(data:try Data(contentsOf:url,options:.mappedIfSafe))) == source.nativeDigest else { throw ReaderFailure("文档已被其他程序修改，请重新打开再保存。") }
+        }
+        try unchanged()
+        let stage = url.deletingLastPathComponent().appendingPathComponent(".uvz-info-"+UUID().uuidString+"."+url.pathExtension)
+        defer { try? fm.removeItem(at:stage) }
+        try NativeDocumentMetadata.write(metadata,from:url,to:stage)
+        let permissions = try fm.attributesOfItem(atPath:url.path)[.posixPermissions]
+        if let permissions { try fm.setAttributes([.posixPermissions:permissions],ofItemAtPath:stage.path) }
+        if preserveDates { try dates.restore(to:stage) }
+        try unchanged()
+        if backup { try fm.copyItem(at:url,to:Self.backupURL(url)) }
+        let oldFolder = source.metadataDirectory,newFolder = URL(fileURLWithPath:destination.path+".uvzmeta",isDirectory:true)
+        let oldInfo = try LooseBook.find("bookinfo.dat",in:oldFolder)
+        // Migrate an existing directory only when it holds directory edits or unknown user files.
+        // An old information-only companion is retired after native metadata has been validated.
+        let remaining = (try? fm.contentsOfDirectory(at:oldFolder,includingPropertiesForKeys:nil))?.filter {$0 != oldInfo && $0.lastPathComponent != ".DS_Store"} ?? []
+        var movedFolder = false
+        if destination != url,!remaining.isEmpty,fm.fileExists(atPath:oldFolder.path) {
+            try fm.moveItem(at:oldFolder,to:newFolder); movedFolder = true
+        }
+        do {
+            if destination == url {
+                guard Darwin.rename(stage.path,url.path) == 0 else { throw ReaderFailure("无法替换文档："+String(cString:strerror(errno))) }
+            } else {
+                try fm.moveItem(at:stage,to:destination)
+                do { try fm.removeItem(at:url) } catch { try? fm.removeItem(at:destination); throw error }
+            }
+        } catch { if movedFolder { try? fm.moveItem(at:newFolder,to:oldFolder) }; throw error }
+        // Clean only the legacy BookInfo file already embedded above; never discard user directory edits.
+        if let oldInfo { try? fm.removeItem(at:movedFolder ? newFolder.appendingPathComponent(oldInfo.lastPathComponent) : oldInfo) }
+        if remaining.isEmpty,fm.fileExists(atPath:oldFolder.path) { try? fm.removeItem(at:oldFolder) }
+        return destination
+    }
     /// Preflight both names, move companion metadata together, then save metadata only.
     func updateInformation(stem: String, metadata: [String: String]?, backup: Bool = false, preserveDates: Bool = true) throws -> URL {
         let destination = canRename ? try renameDestination(stem: stem) : url
@@ -586,6 +644,9 @@ extension BookArchive {
             } else {
                 guard Data(SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe))) == sourceDigest else { throw ReaderFailure("压缩包已被其他程序修改，请重新打开再编辑。") }
             }
+        }
+        if storesNativeInformation,let metadata,let loose {
+            return try saveNativeInformation(metadata,to:destination,source:loose,backup:backup,preserveDates:preserveDates)
         }
         let originalDates = try FileDateRecord(url)
         let moved = canRename ? try renamedURL(stem: stem, preserveDates: preserveDates) : url

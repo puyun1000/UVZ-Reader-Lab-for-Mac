@@ -11,8 +11,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc func showReleaseNotes() { guide.show(tab: 2) }
     var initialURL: URL?
     var smokeOutput: URL?
+    var conversionTest = false
+    var policyTest = false
     var batchTest = false
     var batchFolderURL: URL?
+    private(set) var conversion: ConversionWindow?
+    @objc func conversionCommand() {presentConversion([])}
+    func presentConversion(_ urls:[URL]) {
+        if conversion == nil {let controller=ConversionWindow();conversion=controller;controller.onClosed={[weak self] in self?.conversion=nil};controller.onOpen={[weak self] in self?.openURL($0)}}
+        conversion?.show();if !urls.isEmpty {conversion?.add(urls)}
+    }
     private(set) var batchNaming: BatchNamingWindow?
     var repairTest = false
     var identityTest = false
@@ -40,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var active: ReaderController? { readers.first { ownsFocus($0.window) } ?? readers.last }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        AppIdentity.installIcon(); buildMenus(); launched = true
+        ChineseMenus.install();AppIdentity.installIcon(); buildMenus(); launched = true
         let inputs = initialURL.map { [$0] } ?? pendingURLs
         if !inputs.isEmpty { inputs.forEach { openURL($0) } }
         else if smokeOutput == nil {
@@ -50,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             if urls.isEmpty { _ = createWindow() } else { urls.forEach { openURL($0) } }
         }
         if smokeOutput != nil {
-            smokePrimary = readers.first; smokeDeadline = Date().addingTimeInterval(repairTest || batchTest ? 240 : 60); if batchTest { batchTick() } else if identityTest { identityTick() } else if repairTest { repairTick() } else if pagingTest { pagingTick() } else if regionTest { regionTick() } else if metadataTest { metadataTick() } else if editorTest { editorTick() } else { smokeTick() }
+            smokePrimary = readers.first; smokeDeadline = Date().addingTimeInterval(repairTest || batchTest ? 240 : 60); if conversionTest {ConversionUITest.run(app:self,folder:batchFolderURL!,output:smokeOutput!)} else if policyTest { policyTick() } else if batchTest { batchTick() } else if identityTest { identityTick() } else if repairTest { repairTick() } else if pagingTest { pagingTick() } else if regionTest { regionTick() } else if metadataTest { metadataTick() } else if editorTest { editorTick() } else { smokeTick() }
         } else { NSApplication.shared.activate(ignoringOtherApps: true) }
     }
     @discardableResult func createWindow() -> ReaderController {
@@ -58,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         reader.onOpenFiles = { [weak self] files in
             if files.isEmpty { self?.chooseBooks() } else { files.forEach { self?.openURL($0) } }
         }
+        reader.onConvert = {[weak self] in self?.presentConversion($0)}
         reader.onBookChanged = { [weak self] in self?.saveSession() }
         reader.onCloseWindow = { [weak self] closed in self?.readers.removeAll { $0 === closed }; self?.saveSession() }
         readers.append(reader); reader.window.makeKeyAndOrderFront(nil)
@@ -97,12 +106,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         controller.show(choose:choose)
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if conversion?.isRunning == true {conversion?.show();return .terminateCancel}
         if batchNaming?.isApplying == true { batchNaming?.show(); return .terminateCancel }
         return .terminateNow
     }
-    @objc func closeCurrentContext() {
-        if let key = NSApplication.shared.keyWindow, key.identifier?.rawValue == "UVZDocumentDialog" || key.identifier?.rawValue == "UVZBatchNaming" { key.performClose(nil) }
-        else { active?.closeBook() }
+    @objc func closeCurrentContext() {closeContext(NSApplication.shared.keyWindow)}
+    func closeContext(_ key:NSWindow?) {
+        if let key,["UVZDocumentDialog","UVZBatchNaming","UVZConversion"].contains(key.identifier?.rawValue ?? "") {key.performClose(nil)}
+        else {active?.closeBook()}
     }
     @objc func newWindow() { _ = createWindow() }
     @objc func chooseBooks() {
@@ -144,7 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc private func redoEdit() { focusedUndoManager?.redo() }
     @objc private func findContents() { active?.editor?.showContentsTab(); active?.editor?.findReplace() }
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(closeCurrentContext),NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZBatchNaming" { item.title = "关闭当前窗口"; return true }
+        if item.action == #selector(closeCurrentContext),["UVZBatchNaming","UVZConversion"].contains(NSApplication.shared.keyWindow?.identifier?.rawValue ?? "") { item.title = "关闭当前窗口"; return true }
         if item.action == #selector(closeCurrentContext) { item.title = NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZDocumentDialog" ? "关闭当前窗口" : "关闭当前书籍"; return active?.book != nil || NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZDocumentDialog" }
         if item.action == #selector(toggleBackups) { item.state = AppSettings().backups ? .on : .off; return true }
         if item.action == #selector(findContents) { return active?.editor != nil }
@@ -168,11 +179,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             item("退出 UVZ Reader Lab", #selector(NSApplication.terminate(_:)), "q")
         ], to: main)
         let recent = NSMenuItem(title: "最近打开", action: nil, keyEquivalent: ""); recent.submenu = recentMenu; recentMenu.delegate = self
-        _ = addMenu("文件", [item("新建阅读窗口", #selector(newWindow), "n", target: self), item("打开电子书…", #selector(chooseBooks), "o", target: self), recent, item("批量规范命名…",#selector(batchNamingCommand),"b",target:self,modifiers:[.command,.shift]),
+        _ = addMenu("文件", [item("新建阅读窗口", #selector(newWindow), "n", target: self), item("打开电子书…", #selector(chooseBooks), "o", target: self), recent, item("转换工作台…",#selector(conversionCommand),"k",target:self,modifiers:[.command,.shift]),item("批量规范命名…",#selector(batchNamingCommand),"b",target:self,modifiers:[.command,.shift]),
             .separator(), item("书籍信息与重命名…", #selector(ReaderController.renameZip), "r", modifiers: [.command, .shift]), 
-            item("编辑目录…", #selector(ReaderController.editBook), "e", modifiers: [.command, .shift]), .separator(), item("保存前备份原文件", #selector(toggleBackups), target: self), .separator(), item("关闭当前书籍", #selector(closeCurrentContext), "w", target: self),
+            item("编辑目录…", #selector(ReaderController.editBook), "e", modifiers: [.command, .shift]),item("在线目录与封面…",#selector(ReaderController.showOnlineReferences)), .separator(), item("保存前备份原文件", #selector(toggleBackups), target: self), .separator(), item("关闭当前书籍", #selector(closeCurrentContext), "w", target: self),
             item("关闭窗口", #selector(NSWindow.performClose(_:)), "w", modifiers: [.command, .shift])], to: main)
-        _ = addMenu("编辑", [item("撤销", #selector(undoEdit), "z", target: self), item("重做", #selector(redoEdit), "z", target: self, modifiers: [.command, .shift]), .separator(), item("剪切", #selector(NSText.cut(_:)), "x"), item("复制", #selector(NSText.copy(_:)), "c"), item("全选", #selector(NSText.selectAll(_:)), "a"), item("粘贴", #selector(NSText.paste(_:)), "v"), .separator(), item("查找目录…", #selector(findContents), "f", target: self)], to: main)
+        let editingMenu = addMenu("编辑", [item("撤销", #selector(undoEdit), "z", target: self), item("重做", #selector(redoEdit), "z", target: self, modifiers: [.command, .shift]), .separator(), item("剪切", #selector(NSText.cut(_:)), "x"), item("复制", #selector(NSText.copy(_:)), "c"), item("全选", #selector(NSText.selectAll(_:)), "a"), item("粘贴", #selector(NSText.paste(_:)), "v"), .separator(), item("查找目录…", #selector(findContents), "f", target: self)], to: main)
+        let conversions=NSMenuItem(title:"文字转换",action:nil,keyEquivalent:"");conversions.submenu=TextConversion.menu(target:nil,action:#selector(ChineseTextView.convertSelection));editingMenu.addItem(conversions)
         _ = addMenu("阅读", [item("上一页", #selector(ReaderController.previousPage), "["), item("下一页", #selector(ReaderController.nextPage), "]"),
             item("首页", #selector(ReaderController.firstPage)), item("末页", #selector(ReaderController.lastPage)), .separator(),
             item("单页视图", #selector(ReaderController.singlePageMode)), item("单页连续", #selector(ReaderController.singleContinuousMode)),
@@ -201,6 +213,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc private func openRecent(_ sender: NSMenuItem) { if let url = sender.representedObject as? URL { openURL(url) } }
     @objc private func clearRecent() { NSDocumentController.shared.clearRecentDocuments(nil) }
 
+    private func policyTick() {
+        DispatchQueue.main.asyncAfter(deadline:.now()+0.3) { [self] in
+            guard let folder = batchFolderURL,let output = smokeOutput else { failSmoke("Policy input missing");return }
+            do {
+                let previous = UserDefaults.standard.object(forKey:"settings.namingStyle")
+                defer { if let previous {UserDefaults.standard.set(previous,forKey:"settings.namingStyle")} else {UserDefaults.standard.removeObject(forKey:"settings.namingStyle")} }
+                for file in ["policy.pdf","policy.djvu"] {
+                    let testDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("uvz-policy-"+UUID().uuidString,isDirectory:true)
+                    try FileManager.default.createDirectory(at:testDirectory,withIntermediateDirectories:true)
+                    defer { try? FileManager.default.removeItem(at:testDirectory) }
+                    let testSource = testDirectory.appendingPathComponent(file)
+                    try FileManager.default.copyItem(at:folder.appendingPathComponent(file),to:testSource)
+                    let book = try BookArchive(url:testSource),sheet = RenameSheet(book:book)
+                    guard sheet.saveMetadata.isHidden else {throw ReaderFailure("PDF/DjVu should use mandatory native information saving")}
+                    let host = createWindow(); NativeDialog.present(sheet.window,on:host.window)
+                    let originalName = sheet.fields[1].stringValue
+                    let evidence: [NamingEvidence] = [.init(field:"书名",value:originalName,source:"文档信息",page:nil,inferred:false),.init(field:"书名",value:"推荐书名",source:"CIP著录",page:1,inferred:false),.init(field:"书名",value:"推荐书名",source:"出版信息",page:1,inferred:false),.init(field:"丛书名",value:"研究丛书",source:"CIP著录",page:1,inferred:false)]
+                    sheet.applyRecognition([:],evidence:evidence)
+                    guard sheet.fields[1].stringValue == "推荐书名",sheet.nameField.stringValue.hasPrefix("【研究丛书】") else {throw ReaderFailure("Single-book automatic comparison or series naming failed")}
+                    sheet.undoAutomatic();guard sheet.fields[1].stringValue == originalName else {throw ReaderFailure("Undo automatic adjustment failed")}
+                    sheet.fields[1].stringValue = "手工标题";sheet.controlTextDidChange(Notification(name:NSControl.textDidChangeNotification,object:sheet.fields[1]));sheet.applyRecognition([:],evidence:evidence)
+                    guard sheet.fields[1].stringValue == "手工标题" else {throw ReaderFailure("Manual change overwritten")}
+                    let sourceIndex = sheet.recognitionSources.firstIndex(where:{$0.field == "书名" && $0.value == "推荐书名"})!
+                    sheet.sourceTable.selectRowIndexes(IndexSet(integer:sourceIndex),byExtendingSelection:false)
+                    guard NSApplication.shared.sendAction(sheet.sourceTable.doubleAction!,to:sheet.sourceTable.target,from:sheet.sourceTable),sheet.fields[1].stringValue == "推荐书名" else {throw ReaderFailure("Double-click source adoption failed")}
+                    if file == "policy.pdf" {
+                        sheet.manageTemplates();guard let manager = sheet.templateWindow else {throw ReaderFailure("Template manager missing")}
+                        manager.name.stringValue = "界面测试格式"+UUID().uuidString;manager.pattern.stringValue = "{书名}_{ISBN}";manager.add()
+                        guard let saved = NamingPreferences.library().last else {throw ReaderFailure("Template not saved")}
+                        guard sheet.selectedStyleID == saved.id else {throw ReaderFailure("Saved format not selected")}
+                        manager.pattern.stringValue = "{作者}_{书名}";manager.update();guard NamingPreferences.library().last?.pattern == "{作者}_{书名}" else {throw ReaderFailure("Template update failed")}
+                        try captureView(manager.window.contentView!,to:output.deletingPathExtension().appendingPathExtension("templates.png"))
+                        manager.remove();guard !NamingPreferences.library().contains(where:{$0.id == saved.id}) && sheet.selectedStyleID == NamingPreferences.automatic else {throw ReaderFailure("Template delete did not fall back")};manager.close()
+                        try captureView(sheet.window.contentView!,to:output)
+                    }
+                    var savedURL: URL?
+                    sheet.onRename = { stem,values,preserve in
+                        guard let values else { throw ReaderFailure("Save and rename lost metadata") }
+                        savedURL = try book.updateInformation(stem:stem,metadata:values,preserveDates:preserve)
+                    }
+                    sheet.rename()
+                    guard let savedURL,try BookArchive(url:savedURL).metadata["书名"] == "推荐书名",!FileManager.default.fileExists(atPath:savedURL.path+".uvzmeta") else { throw ReaderFailure("Native save and rename UI failed") }
+                    host.window.orderOut(nil)
+                }
+                let checks = ["PDF和DjVu保存并重命名同步内嵌信息，不产生旁存文件","单书自动比较已有值并采用CIP与出版信息印证的书名","自动包含丛书，缺失时自动省略","可撤回自动调整，后续手工修改受保护","来源表双击采用对应字段","命名格式管理窗口可新增、更新、删除并持久生效"]
+                try JSONSerialization.data(withJSONObject:["passed":true,"checks":checks,"version":"0.15.0"],options:[.prettyPrinted,.sortedKeys]).write(to:output.deletingPathExtension().appendingPathExtension("json"));print("POLICY_UI_OK");exit(0)
+            } catch {failSmoke(error.localizedDescription)}
+        }
+    }
+
     private func batchTick() {
         DispatchQueue.main.asyncAfter(deadline:.now()+0.4) { [self] in
             guard let output = smokeOutput,let folder = batchFolderURL else { failSmoke("Batch fixture missing"); return }
@@ -213,20 +275,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     presentBatchNaming(choose:false); batchNaming!.loadFolder(folder); advance()
                 case 1:
                     guard let batch = batchNaming,!batch.isAnalysing,batch.items.count == 2,batch.items.allSatisfy({$0.proposal != nil}) else { batchTick(); return }
-                    guard batch.items.allSatisfy({!$0.included && $0.proposal!.candidates.count == 2 && $0.proposal!.evidence.contains(where:{$0.source == "CIP著录" || $0.source == "出版信息"}) && $0.proposal!.pages.contains(where:{$0.role == "封面"})}) else { throw ReaderFailure("Missing evidence or unexpected auto inclusion") }
+                    guard batch.items.allSatisfy({!$0.included && !$0.proposal!.suggestedName.isEmpty && $0.proposal!.evidence.contains(where:{$0.source == "CIP著录" || $0.source == "出版信息"}) && $0.proposal!.pages.contains(where:{$0.role == "封面"})}) else { throw ReaderFailure("Missing evidence or unexpected auto inclusion") }
                     for item in batch.items { guard try BatchNaming.fingerprint(item.url) == batchFingerprints[item.url.path] else { throw ReaderFailure("Analysis changed source") }; item.included = true; item.reviewed = true; item.customName = "同名候选测试" }
                     guard !batch.checkNames() else { throw ReaderFailure("Batch duplicate target accepted") }
                     for item in batch.items { item.included = false; item.customName = nil; item.reviewed = false }
-                    smokeChecks.append("选择文件夹自动分析，每书两种建议并展示版权页和封面依据；分析不改原件")
+                    batch.toggleAll(); guard batch.items.allSatisfy(\.included),batch.selectionHeader.check.state == .on else { throw ReaderFailure("Header select all failed") }
+                    let check = NSButton(); check.tag = 0; check.state = .off; batch.includeChanged(check); guard batch.selectionHeader.check.state == .mixed else { throw ReaderFailure("Header mixed state missing") }
+                    batch.toggleAll(); batch.toggleAll(); guard batch.items.allSatisfy({!$0.included}),batch.selectionHeader.check.state == .off else { throw ReaderFailure("Header deselect all failed") }
+                    smokeChecks.append("表头复选框全选、部分选择和取消全选三态正确")
+                    smokeChecks.append("选择文件夹自动分析，每书自动选择格式并展示版权页和封面依据；分析不改原件")
                     smokeChecks.append("多本图书同名目标在应用前阻止")
                     let reader = createWindow(); smokePrimary = reader; reader.open(batch.items[0].url); advance()
                 case 2:
                     guard let batch = batchNaming,let reader = smokePrimary,reader.hasRenderedImage else { batchTick(); return }
                     reader.jump(1); batch.window.makeKeyAndOrderFront(nil); batch.table.selectRowIndexes(IndexSet(integer:0),byExtendingSelection:false)
                     batch.fields[1].stringValue = "界面核对书名"; batch.controlTextDidChange(Notification(name:NSControl.textDidChangeNotification,object:batch.fields[1]))
-                    batch.itemStyle.selectedSegment = 1; batch.itemStyleChanged(); batch.reviewed.state = .on; batch.reviewChanged(); let include = NSButton(); include.tag = 0; include.state = .on; batch.includeChanged(include); batch.saveMetadata.state = .off; batch.preserveDates.state = .on
+                    batch.uniformStyle.selectItem(at:0); batch.uniformStyleChanged()
+                    batch.fields[4].stringValue = "待替换出版社"; batch.controlTextDidChange(Notification(name:NSControl.textDidChangeNotification,object:batch.fields[4]))
+                    let sourceRow = batch.currentEvidence.firstIndex(where:{$0.field == "出版社" && $0.source == "CIP著录"})!
+                    batch.evidenceTable.selectRowIndexes(IndexSet(integer:sourceRow),byExtendingSelection:false)
+                    guard NSApplication.shared.sendAction(batch.evidenceTable.doubleAction!,to:batch.evidenceTable.target,from:batch.evidenceTable),batch.fields[4].stringValue == "江苏人民出版社" else {throw ReaderFailure("Batch double-click source failed")}
+                    smokeChecks.append("批量来源表双击采用对应字段并刷新名称")
+                    batch.reviewed.state = .on; batch.reviewChanged(); let include = NSButton(); include.tag = 0; include.state = .on; batch.includeChanged(include); batch.saveMetadata.state = .off; batch.preserveDates.state = .on
                     guard batch.checkNames(),batch.items[0].stem.hasPrefix("【"),batch.items[0].stem.contains("界面核对书名") else { throw ReaderFailure("Review or format choice failed") }
                     guard batch.window.contentView!.bounds.width<=1500,batch.window.contentView!.bounds.height<=1100 else { throw ReaderFailure("Batch layout exceeds usable size") }
+                    batch.window.contentView?.layoutSubtreeIfNeeded(); batch.fitTableColumns()
+                    guard batch.table.rect(ofColumn:3).maxX<=batch.table.enclosingScrollView!.contentView.frame.width+1,batch.evidenceTable.rect(ofColumn:3).maxX<=batch.evidenceTable.enclosingScrollView!.contentView.frame.width+1 else {throw ReaderFailure("Table status or physical-page column clipped")}
                     try captureView(batch.window.contentView!,to:output)
                     batch.showSources(); guard let source = batch.sourceWindow else { throw ReaderFailure("Batch source window missing") }
                     let page = batch.items[0].proposal!.pages.firstIndex(where:{$0.role == "版权页"})!
@@ -236,7 +310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     guard source.imageScroll.frame.width>250,source.text.enclosingScrollView!.frame.width>250 else { throw ReaderFailure("Source preview collapsed a pane") }
                     let scale = source.imageScroll.magnification; source.zoomIn(); guard source.imageScroll.magnification>scale else { throw ReaderFailure("Source image zoom failed") }; source.fitPage()
                     try captureView(source.window.contentView!,to:output.deletingPathExtension().appendingPathExtension("source.png")); source.closeWindow()
-                    smokeChecks.append("可修订字段、切换两种格式、人工确认差异，并查看对应原图和识别原文")
+                    smokeChecks.append("可修订字段、自动包含丛书、人工确认差异，并查看对应原图和识别原文")
                     editedBytes = try Data(contentsOf:batch.items[0].url)
                     try BatchNaming.csv(batch.items).write(to:output.deletingPathExtension().appendingPathExtension("csv"),atomically:true,encoding:.utf8)
                     batch.applySelected(); advance()
@@ -368,13 +442,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     reader.closeBook(); guard reader.book != nil, !reader.windowShouldClose(reader.window) else { throw ReaderFailure("Parent closed with information draft") }
                     smokeChecks.append("信息窗口原生标题栏可独立移动，编辑期间保护原书窗口")
                     for (key, value) in ["书名":"编辑测试书", "作者":"测试作者", "出版社":"测试出版社", "出版日期":"2026.03", "SS号":"12345678", "丛书名":"研究丛书"] { rename.fields[rename.keys.firstIndex(of:key)!].stringValue = value }
-                    guard rename.keys == ["ISBN", "书名", "作者", "丛书名", "出版社", "出版日期", "页数", "SS号", "DX号"], rename.style.numberOfItems == 3 else { throw ReaderFailure("Field order or presets") }
-                    rename.generateName()
+                    guard rename.keys == ["ISBN", "书名", "作者", "丛书名", "出版社", "出版日期", "页数", "SS号", "DX号"], rename.style.numberOfItems >= 4 else { throw ReaderFailure("Field order or presets") }
+                    rename.style.selectItem(at:1); rename.generateName()
                     guard rename.nameField.stringValue == "编辑测试书_测试作者_测试出版社_2026.03_12345678" else { throw ReaderFailure("Filename assembly") }
-                    rename.style.selectItem(at: 1); rename.generateName()
+                    rename.style.selectItem(at: 0); rename.generateName()
                     guard rename.nameField.stringValue == "【研究丛书】编辑测试书_测试作者_测试出版社_2026.03_12345678" else { throw ReaderFailure("Series filename template") }
                     let previous = UserDefaults.standard.object(forKey: "settings.customTemplate")
-                    rename.style.selectItem(at: 2); rename.templateField.stringValue = "{出版日期}·{书名}_{SS号}"; rename.generateName()
+                    rename.style.selectItem(at:rename.style.numberOfItems-1); rename.templateField.stringValue = "{出版日期}·{书名}_{SS号}"; rename.generateName()
                     guard rename.nameField.stringValue == "2026.03·编辑测试书_12345678" else { throw ReaderFailure("Custom filename template") }
                     if let previous { UserDefaults.standard.set(previous, forKey: "settings.customTemplate") } else { UserDefaults.standard.removeObject(forKey: "settings.customTemplate") }
                     smokeChecks.append("自定义命名格式与出版年月生成")
@@ -463,7 +537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     guide.show(tab: 1); try captureView(guide.window.contentView!, to: output.deletingPathExtension().appendingPathExtension("guide.png"))
                     guide.show(tab: 2); try captureView(guide.window.contentView!, to: output.deletingPathExtension().appendingPathExtension("releases.png")); guide.window.close()
                     smokeChecks.append("应用内离线功能说明与更新说明可以打开")
-                    let report: [String: Any] = ["passed": true, "checks": smokeChecks, "version": "0.11.0"]
+                    let report: [String: Any] = ["passed": true, "checks": smokeChecks, "version": "0.15.0"]
                     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output.deletingPathExtension().appendingPathExtension("json"))
                     print("EDITOR_UI_OK"); exit(0)
                 }
@@ -522,7 +596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     guard reader.editor == nil, reader.hasRenderedImage else { pagingTick(); return }
                     guard reader.book!.chapters.map({$0.pageIndex+1}) == [8,493,494,495], reader.book!.chapters.map(\.level) == [0,0,1,0], reader.state.page == 492 else { throw ReaderFailure("Typed directory save roundtrip") }
                     smokeChecks.append("真实图书副本保存重读，类型页号正确映射并保留阅读位置")
-                    try JSONSerialization.data(withJSONObject:["passed":true,"checks":smokeChecks,"version":"0.11.0"],options:[.prettyPrinted,.sortedKeys]).write(to:output.deletingPathExtension().appendingPathExtension("json"))
+                    try JSONSerialization.data(withJSONObject:["passed":true,"checks":smokeChecks,"version":"0.15.0"],options:[.prettyPrinted,.sortedKeys]).write(to:output.deletingPathExtension().appendingPathExtension("json"))
                     print("PAGING_UI_OK"); exit(0)
                 }
             } catch { failSmoke(error.localizedDescription); return }
@@ -592,7 +666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     guard reader.editor == nil,reader.hasRenderedImage else { regionTick(); return }
                     guard reader.book?.chapters.count==4,reader.book?.chapters.map({$0.pageIndex+1})==[1,2,3,2],reader.book?.metadata["自定义"]=="原字段保留" else { throw ReaderFailure("Region draft saved roundtrip") }
                     smokeChecks.append("保存框选目录后重读，页码与原有BookInfo字段保留")
-                    try JSONSerialization.data(withJSONObject: ["passed":true,"checks":smokeChecks,"text":regionText,"version":"0.11.0"],options: [.prettyPrinted,.sortedKeys]).write(to: output.deletingPathExtension().appendingPathExtension("json"))
+                    try JSONSerialization.data(withJSONObject: ["passed":true,"checks":smokeChecks,"text":regionText,"version":"0.15.0"],options: [.prettyPrinted,.sortedKeys]).write(to: output.deletingPathExtension().appendingPathExtension("json"))
                     print("REGION_UI_OK"); exit(0)
                 }
             } catch { failSmoke(error.localizedDescription); return }
@@ -610,8 +684,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     metadataSourceBytes = try Data(contentsOf: book.url); reader.editInfo(); smokeDeadline = Date().addingTimeInterval(60); smokeStage = 1
                 default:
                     guard let sheet = reader.renameSheet, !sheet.recognitionRunning, !sheet.recognitionText.string.isEmpty else { metadataTick(); return }
-                    guard sheet.metadataSnapshot["ISBN"] == "9787214312990", sheet.metadataSnapshot["作者"] == reader.book!.metadata["作者"], sheet.metadataSnapshot["出版日期"] == "2026.03" else { throw ReaderFailure("Real copyright metadata fill") }
-                    guard sheet.extractionText.string.contains("ISBN：9787214312990"), sheet.extractionText.enclosingScrollView!.frame.height > 250 else { throw ReaderFailure("Structured extraction pane") }
+                    guard sheet.metadataSnapshot["ISBN"] == "9787214312990", sheet.metadataSnapshot["作者"] == "乔玉钰著", sheet.metadataSnapshot["书名"] == "东亚女性汉文学的位相", sheet.metadataSnapshot["出版日期"] == "2026.03" else { throw ReaderFailure("Real copyright metadata fill") }
+                    guard sheet.nameField.stringValue.hasPrefix("【东亚古代汉文学史研究丛书】"),sheet.extractionText.string.contains("ISBN：9787214312990"), sheet.extractionText.enclosingScrollView!.frame.height > 250 else { throw ReaderFailure("Structured extraction pane") }
                     sheet.enlargeRecognition(); guard let review=sheet.reviewWindow,review.window.contentView!.bounds.height>=600 else { throw ReaderFailure("Copyright enlarge window") }
                     try checkMovableDialog(review.window,parent:sheet.window)
                     try captureView(review.window.contentView!,to: output.deletingPathExtension().appendingPathExtension("review.png")); review.window.close()
@@ -712,7 +786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 do {
                     let narrow = output.deletingPathExtension().appendingPathExtension("narrow.png")
                     try capture(reader, to: narrow)
-                    let report: [String: Any] = ["passed": true, "checks": smokeChecks, "ocr": smokeOCR, "version": "0.11.0"]
+                    let report: [String: Any] = ["passed": true, "checks": smokeChecks, "ocr": smokeOCR, "version": "0.15.0"]
                     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output.deletingPathExtension().appendingPathExtension("json"))
                     print("UI_LIFECYCLE_OK UI_RENDER_OK OCR=\(smokeOCR)"); exit(0)
                 } catch { failSmoke(String(describing: error)); return }

@@ -66,22 +66,23 @@ def main():
         original_pdf=pdf.read_bytes(); os.utime(pdf,(1_500_000_000,1_500_000_000));pdf_dates=dates(pdf)
         change.write_text(json.dumps(dict(stem='原文',metadata={'书名':'PDF测试','ISBN':'9780306406157'})))
         run('--update-information',pdf,change)
-        sidecar=Path(str(pdf)+'.uvzmeta'); assert (sidecar/'BookInfo.dat').exists() and not (sidecar/'Bookcontents.dat').exists()
+        sidecar=Path(str(pdf)+'.uvzmeta'); assert not sidecar.exists()
         assert run('--inspect',pdf)['chapters'][0]['title']=='原生目录'
         unchanged_dates(pdf,pdf_dates)
-        checks.append('PDF 仅保存信息不生成覆盖原生目录的空 DAT，不改文档字节与日期')
+        checks.append('PDF 信息内嵌保存，不生成旁置文件，保留原生目录与日期')
         change.write_text(json.dumps(dict(stem='中文PDF改名',metadata={'书名':'更正书名','ISBN':'9780306406157'})))
         newpdf=Path(run('--update-information',pdf,change)['path']);newsidecar=Path(str(newpdf)+'.uvzmeta')
-        assert newpdf.read_bytes()==original_pdf and not pdf.exists() and not sidecar.exists() and newsidecar.is_dir()
+        assert not pdf.exists() and not sidecar.exists() and not newsidecar.exists()
+        saved_pdf=newpdf.read_bytes()
         unchanged_dates(newpdf,pdf_dates)
         assert run('--inspect',newpdf)['metadata']['书名']=='更正书名'
-        checks.append('PDF 中文改名同步迁移信息文件夹，保持文档与日期并可重读')
+        checks.append('PDF 中文改名同步写入信息，无旁置文件，保持日期并可重读')
         occupied=folder/'已存在.pdf';occupied.write_bytes(b'existing')
         run('--rename-book',newpdf,'已存在',ok=False)
         conflict=folder/'目录冲突.pdf.uvzmeta';conflict.mkdir();(conflict/'keep').write_bytes(b'keep')
         run('--rename-book',newpdf,'目录冲突',ok=False)
         run('--rename-book',newpdf,'../逃逸',ok=False)
-        assert newpdf.read_bytes()==original_pdf and occupied.read_bytes()==b'existing' and (conflict/'keep').read_bytes()==b'keep'
+        assert newpdf.read_bytes()==saved_pdf and occupied.read_bytes()==b'existing' and (conflict/'keep').read_bytes()==b'keep'
         checks.append('拒绝覆盖 PDF 与已有旁存目录，拒绝路径跳转，失败保留源文件')
         # Extraction includes plain labels, OCR split labels, and noise that must not become author.
         raw=folder/'copyright.txt';raw.write_text('图书在版编目（CIP）数据\n测试书 / 张三著. — 北京 : 示例出版社, 2026.3\n（研究丛书）\nISBN 978-0-306-40615-7\n书名 测试书\n著\n者 张三\n责任编辑 李四\n装帧设计 王五\n出版发行\n示例出版社\n2026年3月第1版\n页数 268页\nSS号 12345678\nDXID 000123456789')

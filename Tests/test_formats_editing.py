@@ -142,9 +142,9 @@ def main():
             run('--apply-draft', document, edit)
             reread = run('--verify', document)
             assert reread['chapters'] == chapters and reread['metadata']['自定义'] == '仍然保留'
-            assert document.read_bytes() == original
-        assert pdf.read_bytes() == before_pdf
-        checks.append('PDF、TIFF 目录和元数据旁存重读，原文档字节不变')
+            if document == tiff: assert document.read_bytes() == original
+        assert not (Path(str(pdf)+".uvzmeta")/"BookInfo.dat").exists()
+        checks.append('PDF 信息内嵌且目录旁存，TIFF 保留原文档字节与旁存信息')
         # Official upstream DjVu fixtures, distributed inside the corresponding source archive.
         source = ROOT / 'ThirdParty/DjVuLibre/djvulibre-3.5.30.tar.gz'
         with tarfile.open(source) as tar:
@@ -161,8 +161,9 @@ def main():
         checks.append('上游真实 57 页 DjVu 页数/原生目录和首中末页解码')
         original = djvu.read_bytes()
         run('--apply-draft', djvu, edit)
-        assert run('--inspect', djvu)['chapters'] == chapters and djvu.read_bytes() == original
-        checks.append('DjVu 编辑目录旁存重读且原文档不变')
+        assert run('--inspect', djvu)['chapters'] == chapters and run('--inspect',djvu)['metadata']['自定义']=='仍然保留'
+        assert not (Path(str(djvu)+'.uvzmeta')/'BookInfo.dat').exists()
+        checks.append('DjVu 目录旁存与信息内嵌可共同保存重读')
         bad = folder / '坏.djvu'; bad.write_bytes(b'not a DjVu')
         run('--inspect', bad, ok=False)
         bad = folder / '坏.tiff'; bad.write_bytes(b'not TIFF')

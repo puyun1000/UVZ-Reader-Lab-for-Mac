@@ -1,6 +1,7 @@
 import AppKit
 import PDFKit
 import ImageIO
+import CryptoKit
 
 let supportedBookExtensions = ["zip", "uvz", "pdg", "pdf", "djvu", "djv", "tif", "tiff"]
 func acceptsBookURL(_ url: URL) -> Bool {
@@ -32,6 +33,7 @@ final class LooseBook {
     private let pdf: PDFDocument?
     private let lock = NSLock()
     let storedMetadata: [String: Data]
+    let nativeDigest: Data
     static func accepts(_ url: URL) -> Bool {
         var directory: ObjCBool = false
         return !["zip", "uvz"].contains(url.pathExtension.lowercased()) ||
@@ -43,6 +45,7 @@ final class LooseBook {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) else { throw ReaderFailure("文件不存在。") }
         kind = directory.boolValue ? "folder" : url.pathExtension.lowercased()
         guard kind == "folder" || supportedBookExtensions.contains(kind) else { throw ReaderFailure("不支持这种文件格式。") }
+        nativeDigest = ["pdf","djvu","djv"].contains(kind) ? Data(SHA256.hash(data:try Data(contentsOf:url,options:.mappedIfSafe))) : Data()
         metadataDirectory = kind == "folder" ? url : URL(fileURLWithPath: url.path + ".uvzmeta", isDirectory: true)
         var pages: [BookPage] = [], nativeChapters: [BookChapter] = [], info: [String: String] = [:]
         var nativeHasContents = false
@@ -68,10 +71,7 @@ final class LooseBook {
             if kind == "pdf" {
                 guard let document = PDFDocument(data: data), !document.isLocked else { throw ReaderFailure("PDF 无法读取或需要密码。") }
                 pdf = document; count = document.pageCount
-                if let attributes = document.documentAttributes {
-                    info["书名"] = attributes[PDFDocumentAttribute.titleAttribute] as? String
-                    info["作者"] = attributes[PDFDocumentAttribute.authorAttribute] as? String
-                }
+                info = NativeDocumentMetadata.pdfValues(document)
                 func visit(_ node: PDFOutline, level: Int) {
                     guard level < 64, nativeChapters.count < 100_000 else { return }
                     for i in 0..<node.numberOfChildren {
@@ -87,6 +87,7 @@ final class LooseBook {
                 if let root = document.outlineRoot { nativeHasContents = true; visit(root, level: 0) }
             } else if ["djvu", "djv"].contains(kind) {
                 pdf = nil
+                info = try NativeDocumentMetadata.djvuValues(url)
                 let result = try DjVuTools.inspect(url)
                 count = result.0; nativeChapters = result.1; nativeHasContents = !nativeChapters.isEmpty
             } else {
@@ -199,8 +200,8 @@ enum DjVuTools {
         }
         return result
     }
-    static func render(_ url: URL, page: Int) throws -> CGImage {
-        let data = try run("ddjvu", ["-format=ppm", "-page=\(page)", "-size=4000x4000", url.path])
+    static func render(_ url: URL, page: Int, fullResolution: Bool = false) throws -> CGImage {
+        let data = try run("ddjvu", ["-format=ppm", "-page=\(page)"]+(fullResolution ? ["-scale=100"] : ["-size=4000x4000"])+[url.path])
         var at = 0
         func token() -> String? {
             while at < data.count {
@@ -211,7 +212,7 @@ enum DjVuTools {
             return String(data: data.subdata(in: start..<at), encoding: .ascii)
         }
         guard token() == "P6", let w = token().flatMap(Int.init), let h = token().flatMap(Int.init), token() == "255",
-              w > 0, h > 0, w <= 4000, h <= 4000, at < data.count else { throw ReaderFailure("DjVu 图像输出异常。") }
+              w > 0, h > 0, w <= (fullResolution ? 30000 : 4000), h <= (fullResolution ? 30000 : 4000), w*h<=60_000_000, at < data.count else { throw ReaderFailure("DjVu 图像输出异常。") }
         if data[at] == 13 && at + 1 < data.count && data[at + 1] == 10 { at += 2 } else { at += 1 }
         guard data.count - at == w * h * 3, let provider = CGDataProvider(data: data.subdata(in: at..<data.count) as CFData),
               let image = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 24, bytesPerRow: w * 3,

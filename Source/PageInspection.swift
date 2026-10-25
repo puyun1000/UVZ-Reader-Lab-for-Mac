@@ -52,17 +52,9 @@ enum PageInspection {
         let value = text.precomposedStringWithCompatibilityMapping.applyingTransform(StringTransform("Traditional-Simplified"),reverse:false) ?? text
         return String(value.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
     }
-    struct EvidenceLine { let text: String; let box: CGRect; let confidence: Float }
+    struct EvidenceLine { let text: String; let box: CGRect; let confidence: Float; var vertical = false }
     static func lines(_ image: CGImage, marginOnly: Bool = false) throws -> [EvidenceLine] {
-        let request = VNRecognizeTextRequest(); request.recognitionLevel = .accurate; request.usesLanguageCorrection = true
-        request.recognitionLanguages = ["zh-Hans","zh-Hant","en-US"]
-        // Full-page geometry and language context are needed for reliable numeric confidence.
-        // Restrict returned evidence to the header for routine reading checks.
-        try VNImageRequestHandler(cgImage:image,options:[:]).perform([request])
-        return (request.results ?? []).compactMap { observation in
-            if marginOnly && observation.boundingBox.minY <= 0.84 { return nil }
-            return observation.topCandidates(1).first.map { EvidenceLine(text:$0.string,box:observation.boundingBox,confidence:$0.confidence) }
-        }
+        try TextRecognition.lines(image,options:RecognitionOptions(language:"auto",layout:"horizontal")).filter { !marginOnly || $0.box.minY>0.84 }
     }
     static func printedNumber(_ lines: [EvidenceLine]) -> Int? {
         let pattern = try! NSRegularExpression(pattern:"^([0-9]{1,6})(?:[ \\t｜|]+[^0-9].*)?$")

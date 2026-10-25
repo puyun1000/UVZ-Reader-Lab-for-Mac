@@ -49,3 +49,9 @@ long lab_inflate_prefix(const uint8_t *input, size_t input_size,
     inflateEnd(&stream);
     return count;
 }
+
+long lab_deflate_bound(size_t count) { return (long)compressBound(count); }
+long lab_deflate_zlib(const uint8_t *input, size_t count, uint8_t *output, size_t capacity) {
+    uLongf size = capacity;
+    return compress2(output, &size, input, count, Z_DEFAULT_COMPRESSION) == Z_OK ? (long)size : -1;
+}

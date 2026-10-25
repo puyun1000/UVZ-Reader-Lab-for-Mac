@@ -30,35 +30,34 @@ struct NamingProposal: Codable {
         if metadata["出版日期",default:""].count == 4 { reasons.append("出版月份未确定") }
         if let date = metadata["出版日期"],!date.isEmpty,date.range(of:"^[12][0-9]{3}(?:\\.(?:0[1-9]|1[0-2]))?$",options:.regularExpression) == nil { reasons.append("出版日期格式待核对") }
         if let ss = metadata["SS号"],!ss.isEmpty,ss.range(of:"^[0-9]{8}$",options:.regularExpression) == nil { reasons.append("SS号格式待核对") }
-        for key in BookMetadata.fields {
-            let values = evidence.filter { $0.field == key }
-            if values.contains(where:{ !BatchNaming.equivalent(key,$0.value,metadata[key,default:""]) }) { reasons.append(key+"来源不一致") }
-            if !originalMetadata[key,default:""].isEmpty { continue }
-            if let chosen = values.first(where:{ BatchNaming.equivalent(key,$0.value,metadata[key,default:""]) }), chosen.inferred { reasons.append(key+"为版面推测") }
-        }
+        let decision = MetadataResolver.select(original:originalMetadata,evidence:evidence)
+        for key in decision.uncertain { reasons.append(key+"来源待核对") }
         if let isbn = metadata["ISBN"],!isbn.isEmpty,!CopyrightMetadata.validISBN(isbn.filter { $0.isNumber || $0 == "X" }.uppercased()) { reasons.append("ISBN校验未通过") }
         return Array(Set(reasons)).sorted()
     }
+    var suggestedName: String { (try? FilenameTemplate.render(NamingPreferences.pattern(NamingPreferences.automatic,metadata:metadata),metadata:metadata)) ?? "" }
     func fieldStatus(_ key: String) -> String {
-        let items = evidence.filter { $0.field == key }
         guard !metadata[key,default:""].isEmpty else { return "未确定" }
-        if items.contains(where:{ !BatchNaming.equivalent(key,$0.value,metadata[key,default:""]) }) { return "有冲突" }
-        if Set(items.map(\.source)).count >= 2 { return "多来源一致" }
-        return originalMetadata[key,default:""].isEmpty ? "建议补齐" : "原有信息"
+        let d = MetadataResolver.select(original:originalMetadata,evidence:evidence)
+        if d.uncertain.contains(key) { return "待核对" }
+        if !BatchNaming.equivalent(key,metadata[key,default:""],d.values[key,default:""]) { return "手工采用" }
+        if !originalMetadata[key,default:""].isEmpty && !BatchNaming.equivalent(key,metadata[key]!,originalMetadata[key]!) { return "已自动替换" }
+        return evidence.filter { $0.field == key && MetadataResolver.credible($0) && BatchNaming.equivalent(key,$0.value,metadata[key]!) }.count>=2 ? "多来源一致" : "已选取"
     }
+
 }
 final class BatchNamingItem {
     let originalURL: URL
     var url: URL
     var proposal: NamingProposal?
     var included = false, reviewed = false
-    var format = 0
+    var styleID = NamingPreferences.automatic
     var customName: String?
     var error: String?
     var outcome: String?
     var analysing = false
-    init(_ url: URL, format: Int = 0) { self.originalURL = url; self.url = url; self.format = format }
-    var stem: String { customName ?? proposal?.candidates[min(max(0,format),1)] ?? "" }
+    init(_ url: URL, styleID: String = NamingPreferences.automatic) { self.originalURL = url; self.url = url; self.styleID = styleID }
+    var stem: String { customName ?? proposal.flatMap { try? FilenameTemplate.render(NamingPreferences.pattern(styleID,metadata:$0.metadata),metadata:$0.metadata) } ?? "" }
     var displayName: String { stem + (url.pathExtension.isEmpty || ((try? url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory) == true) ? "" : "."+url.pathExtension) }
     var status: String {
         if let outcome { return outcome }; if analysing { return "正在分析" }; if let error { return error }
@@ -86,9 +85,9 @@ enum BatchNaming {
             return x == y || (x.count == 4 && y.hasPrefix(x+".")) || (y.count == 4 && x.hasPrefix(y+"."))
         }
         func norm(_ text: String) -> String {
-            var value = PageInspection.normalized(text)
-            if field == "作者" { value = value.replacingOccurrences(of:"(?:编著|主编|编校|校注|选编|著|作|编|译)$",with:"",options:.regularExpression) }
-            return value
+            var raw = text.precomposedStringWithCompatibilityMapping
+            if field == "作者" { raw = raw.replacingOccurrences(of:"(?:編著|编著|主編|主编|編校|编校|校注|選編|选编|著|作|編|编|譯|译)(?=[ ;；、,，]|$)",with:"",options:.regularExpression) }
+            return PageInspection.normalized(raw)
         }
         return norm(a) == norm(b)
     }
@@ -162,15 +161,11 @@ enum BatchNaming {
     }
     static func merge(original: [String:String], evidence: [NamingEvidence], pages: [NamingPage] = [], notes: [String] = [], fingerprint: String = "") -> NamingProposal {
         let original = BookMetadata.canonical(original)
-        var chosen = original
-        for item in evidence where !item.value.isEmpty {
-            if chosen[item.field,default:""].trimmingCharacters(in:.whitespaces).isEmpty { chosen[item.field] = item.value }
-            else if item.field == "出版日期",chosen[item.field]!.count == 4,item.value.count == 7,equivalent(item.field,chosen[item.field]!,item.value) { chosen[item.field] = item.value }
-        }
+        let chosen = MetadataResolver.select(original:original,evidence:evidence).values
         return NamingProposal(metadata:chosen,evidence:evidence,pages:pages,notes:notes,originalMetadata:original,fingerprint:fingerprint)
     }
     static func pageValues(_ lines: [PageInspection.EvidenceLine], role: String, anchors: [String:String]) -> ([String:String],Set<String>) {
-        let text = lines.sorted { $0.box.midY > $1.box.midY }.map(\.text).joined(separator:"\n")
+        let text = TextRecognition.ordered(lines).map(\.text).joined(separator:"\n")
         var labelled = text
         for (old,new) in [("書名","书名"),("叢書名","丛书名"),("出版時間","出版时间"),("頁數","页数"),("總頁數","总页数"),("圖書在版編目","图书在版编目"),("內容提要","内容提要")] { labelled = labelled.replacingOccurrences(of:old,with:new) }
         var values = role.contains("版权页") ? [:] : CopyrightMetadata.extract(labelled), inferred = Set<String>()
@@ -192,14 +187,14 @@ enum BatchNaming {
         if values["书名"] == nil && role != "版权页" {
             let candidates = lines.filter { line in
                 let value = line.text.trimmingCharacters(in:.whitespaces)
-                return value.count >= 2 && value.count <= 100 && line.box.height >= 0.018 && line.confidence >= 0.1 &&
+                return value.count >= 2 && value.count <= 100 && (line.vertical ? line.box.width : line.box.height) >= 0.018 && line.confidence >= 0.1 &&
                     !value.contains("出版社") && !value.contains("出版发行") && !value.contains("ISBN") && !value.hasSuffix("文库") && !value.hasSuffix("丛书") &&
                     value.range(of:"(?:著|主编|编著|译|编校|选编|校注)$",options:.regularExpression) == nil &&
                     !["图书在版编目","版权","定价","责任编辑","CIP"].contains(where:{value.contains($0)})
-            }.sorted { $0.box.height > $1.box.height }
+            }.sorted { ($0.vertical ? $0.box.width : $0.box.height) > ($1.vertical ? $1.box.width : $1.box.height) }
             if let main = candidates.first {
-                let titleLines = candidates.filter { abs($0.box.midX-main.box.midX)<0.18 && $0.box.height>=main.box.height*0.7 && abs($0.box.midY-main.box.midY)<0.18 }.sorted { $0.box.midY>$1.box.midY }
-                let title = titleLines.map(\.text).joined(separator:" ")
+                let titleLines = main.vertical ? TextRecognition.ordered(candidates.filter { $0.vertical && $0.box.width>=main.box.width*0.7 && abs($0.box.midY-main.box.midY)<0.2 }) : candidates.filter { abs($0.box.midX-main.box.midX)<0.18 && $0.box.height>=main.box.height*0.7 && abs($0.box.midY-main.box.midY)<0.18 }.sorted { $0.box.midY>$1.box.midY }
+                let title = titleLines.map(\.text).joined(separator:main.vertical ? "" : " ")
                 if !title.isEmpty { values["书名"] = title; inferred.insert("书名") }
             }
         }
@@ -207,7 +202,7 @@ enum BatchNaming {
         if role != "版权页" { for key in values.keys where !["ISBN","SS号","DX号"].contains(key) { if !equivalent(key,values[key]!,anchors[key,default:""]) { inferred.insert(key) } } }
         return (values,inferred)
     }
-    static func analyse(_ url: URL, ocr: Bool = true, cancelled: () -> Bool = { false }, progress: (String) -> Void = { _ in }) throws -> NamingProposal {
+    static func analyse(_ url: URL, ocr: Bool = true, options: RecognitionOptions = .saved, cancelled: () -> Bool = { false }, progress: (String) -> Void = { _ in }) throws -> NamingProposal {
         let before = try fingerprint(url)
         if cancelled() { throw ReaderFailure("已停止分析。") }
         let book = try BookArchive(url:url), original = BookMetadata.canonical(book.metadata), nameValues = filenameValues(url)
@@ -228,9 +223,9 @@ enum BatchNaming {
                 if cancelled() { throw ReaderFailure("已停止分析。") }
                 progress("识别\(declaredRole)（物理\(index+1)）")
                 do {
-                    let lines = try autoreleasepool { try BibliographicOCR.lines(book.pageImage(at:index)) }
-                    let text = lines.sorted {$0.box.midY>$1.box.midY}.map(\.text).joined(separator:"\n")
-                    let copyrightLike = text.contains("ISBN") || text.contains("在版编目") || text.contains("版權") || text.contains("版权") || text.range(of:"[12][0-9]{3}年.*第.*版",options:.regularExpression) != nil
+                    let lines = try autoreleasepool { try BibliographicOCR.lines(book.pageImage(at:index),options:options) }
+                    let text = TextRecognition.ordered(lines).map(\.text).joined(separator:"\n")
+                    let copyrightLike = BibliographicExtraction.isCopyright(text)
                     let role = declaredRole == "待判定页" ? (copyrightLike ? "版权页" : index == 0 ? "封面" : "书名页") : declaredRole == "版权页" && !copyrightLike ? "待确认版权页" : declaredRole
                     if role == "待确认版权页" { notes.append("标记版权页未识别到版权特征，需查看原图") }
                     if text.isEmpty { notes.append("物理\(index+1)页未识别到文字") }
@@ -313,11 +308,11 @@ enum BatchNaming {
     }
     static func csv(_ items: [BatchNamingItem]) -> String {
         func quote(_ value: String) -> String { "\""+value.replacingOccurrences(of:"\"",with:"\"\"")+"\"" }
-        let headers = ["原路径","候选一","候选二","最终名称","状态","核对提示"]+BookMetadata.fields
+        let headers = ["原路径","规范名称建议","最终名称","状态","核对提示"]+BookMetadata.fields
         var rows = [headers.map(quote).joined(separator:",")]
         for item in items {
             let p = item.proposal
-            let values = [item.originalURL.path,p?.candidates.first ?? "",p?.candidates.last ?? "",item.displayName,item.status,p?.reviewReasons.joined(separator:"；") ?? ""]+BookMetadata.fields.map { p?.metadata[$0] ?? "" }
+            let values = [item.originalURL.path,p?.suggestedName ?? "",item.displayName,item.status,p?.reviewReasons.joined(separator:"；") ?? ""]+BookMetadata.fields.map { p?.metadata[$0] ?? "" }
             rows.append(values.map(quote).joined(separator:","))
         }
         return "\u{feff}"+rows.joined(separator:"\r\n")+"\r\n"

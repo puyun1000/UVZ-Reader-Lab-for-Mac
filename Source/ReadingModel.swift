@@ -10,7 +10,7 @@ struct ReadingState: Codable {
     var wheelTurnsPages = true
     var fit = 0
     var zoom = 1.0
-    var color = 0
+    var color = 1
     var rotation = 0
     var crop = 0.0
     init() {}
@@ -26,7 +26,7 @@ struct ReadingState: Codable {
         wheelTurnsPages = try c.decodeIfPresent(Bool.self, forKey: .wheelTurnsPages) ?? true
         fit = try c.decodeIfPresent(Int.self, forKey: .fit) ?? 0
         zoom = try c.decodeIfPresent(Double.self, forKey: .zoom) ?? 1
-        color = try c.decodeIfPresent(Int.self, forKey: .color) ?? 0
+        color = try c.decodeIfPresent(Int.self, forKey: .color) ?? 1
         rotation = try c.decodeIfPresent(Int.self, forKey: .rotation) ?? 0
         crop = try c.decodeIfPresent(Double.self, forKey: .crop) ?? 0
         page = max(0, page); fraction = fraction.isFinite ? min(1, max(0, fraction)) : 0

@@ -39,3 +39,12 @@ Contents/Resources/DjVuLibre. Copyright notices are retained in that source.
 The reader invokes these programs as separate processes. No DjVuLibre
 library is linked into the Swift reader executable. Build flags disable
 external JPEG/TIFF/X dependencies; RGB PPM is used for page transfer.
+
+Design and service references for 0.14.0
+
+The conversion workflow references PDG2PDF for Mac. Its code and assets are not included.
+Optional directory and cover lookups use the public interface of Wenbin Fan's Duxiu tools:
+https://wbfan.site/duxiu/
+No website JavaScript, image assets, or IID codebooks are copied or bundled.
+The related IID decoder (CC BY 4.0) is a research reference only:
+https://github.com/wbfan95/Duxiu-iid-v3-Decoder-JS

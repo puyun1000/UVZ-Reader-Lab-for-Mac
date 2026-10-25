@@ -46,7 +46,7 @@ enum ContentsTextCodec {
     }
 }
 
-final class ContentsTextView: NSTextView {
+final class ContentsTextView: ChineseTextView {
     override func insertTab(_ sender: Any?) {
         if selectedRange().length > 0 { shiftIndent(1) }
         else { insertText("\t", replacementRange: selectedRange()) }

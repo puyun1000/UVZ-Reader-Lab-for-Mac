@@ -8,6 +8,72 @@ func emit(_ value: [String: Any]) throws {
 }
 
 let args = CommandLine.arguments
+if args.count == 2,args[1] == "--text-conversion-tests" {
+    var checks:[String]=[]
+    func check(_ yes:Bool,_ label:String) throws {guard yes else {throw ReaderFailure(label)};checks.append(label)}
+    do {
+        try check(TextConversion.apply("繁體漢語 ABC",0)=="繁体汉语 ABC","繁体转简体保留英文")
+        try check(TextConversion.apply("简体汉语 ABC",1)=="簡體漢語 ABC","简体转繁体使用系统规则")
+        try check(TextConversion.apply("ＡＢＣ１２３",2)=="ABC123","全角转半角")
+        try check(TextConversion.apply("ABC123",3)=="ＡＢＣ１２３","半角转全角")
+        try check(TextConversion.apply("Abc 中文",4)=="ABC 中文" && TextConversion.apply("AbC 中文",5)=="abc 中文","大小写仅改变字母")
+        try check(TextConversion.apply("the BOOK title",6)=="The Book Title","英文词首大写")
+        try check(TextConversion.apply("书名:研究,资料;说明?是!",7)=="书名：研究，资料；说明？是！","汉字上下文中文标点")
+        try check(TextConversion.apply("English: A, B; C? Yes! ISBN: 1234 2026.03",7)=="English: A, B; C? Yes! ISBN: 1234 2026.03","英文段落、ISBN标签与日期保持原样")
+        try check(TextConversion.apply("\t第一章\t12\n\t\t子项\t34",0)=="\t第一章\t12\n\t\t子项\t34","转换保留目录TAB层级和页码")
+        try check(TextConversion.apply("“书名”，内容：说明；结束。",8)=="\"书名\",内容:说明;结束.","可显式转为英文标点")
+        let suite="UVZColorTests."+UUID().uuidString,d=UserDefaults(suiteName:suite)!;defer {d.removePersistentDomain(forName:suite)}
+        try check(AppSettings(defaults:d).pageColor == 1 && ReadingState().color == 1,"未配置时默认页面原色")
+        for color in [0,1,2] {AppSettings(defaults:d).set(color,"color");try check(AppSettings(defaults:UserDefaults(suiteName:suite)!).readingState.color == color,"默认配色持久保存 \(color)")}
+        try emit(["passed":checks.count,"checks":checks]);exit(0)
+    } catch {fputs("\(error.localizedDescription)\n",stderr);exit(1)}
+}
+if args.count == 2,args[1] == "--online-model-tests" {
+    var checks:[String]=[]
+    func check(_ yes:Bool,_ label:String) throws {guard yes else {throw ReaderFailure(label)};checks.append(label)}
+    func rejected(_ data:String)->Bool {do {_ = try OnlineReferenceClient.parse(Data(data.utf8),ssid:"12345678");return false} catch {return true}}
+    do {
+        let request=try OnlineReferenceClient.request(ssid:"12345678",cover:false)
+        try check(request.httpMethod == "POST" && request.url?.absoluteString == "https://wbfan.site/duxiu/bookmark/api/bookmark","目录接口固定为HTTPS查询")
+        let body=try JSONSerialization.jsonObject(with:request.httpBody!) as! [String:String]
+        try check(body == ["ssid":"12345678"],"目录请求仅发送SS号")
+        let cover=try OnlineReferenceClient.request(ssid:"12345678",cover:true)
+        let coverBody=try JSONSerialization.jsonObject(with:cover.httpBody!) as! [String:String]
+        try check(coverBody == ["ssid":"12345678","size":"lg","channel":"duxiu"],"封面仅使用普通读秀渠道")
+        do {_ = try OnlineReferenceClient.request(ssid:"bad",cover:false);throw ReaderFailure("accepted ssid")} catch let e as ReaderFailure where e.message != "accepted ssid" {checks.append("SS号格式校验")}
+        let reply=try OnlineReferenceClient.parse(Data(#"{"result":{"ssid":"12345678","text":"Title\t1"},"quota":{"remaining":90,"limit":100}}"#.utf8),ssid:"12345678")
+        try check(reply.text == "Title\t1" && reply.remaining == 90 && reply.limit == 100,"目录文本与配额读取")
+        try check(rejected(#"{"result":{"ssid":"87654321","text":"Other book"}}"#),"拒绝串书的SS号")
+        try check(rejected(#"{"result":{"text":"Missing identity"}}"#),"拒绝缺少身份的结果")
+        try check(rejected(#"{"result":{"ssid":"12345678","url":"https://example.com/cover.png"}}"#),"拒绝外站封面地址")
+        let error=try OnlineReferenceClient.parse(Data(#"{"error":"未找到这本书的书签","quota":{"remaining":0,"limit":100}}"#.utf8),ssid:"12345678")
+        try check(error.error != nil && error.text == nil && error.remaining == 0,"无结果与额度耗尽不伪造目录")
+        let parsed=OnlineReferenceClient.directoryText("分组|01|0|0|0\n正文|0101|2|0|6\n版权|02|1|0|3")
+        try check(parsed == "分组\n\t正文\t2\n版权\tleg1","DAT分组、层级、类型页号转换")
+        try check(OnlineReferenceClient.directoryText("章一\t10") == "章一\t10","普通文本保持可编辑格式")
+        try emit(["passed":checks.count,"checks":checks]);exit(0)
+    } catch {fputs("\(error.localizedDescription)\n",stderr);exit(1)}
+}
+if args.count>=4,args[1] == "--convert-pdf" {
+    do {
+        let source=URL(fileURLWithPath:args[2]),target=URL(fileURLWithPath:args[3]);var options=ConversionOptions();var cancel=false
+        options.outputDirectory=target.deletingLastPathComponent().path;options.skipBadPages=args.contains("--skip-bad");options.writeBookmarks = !args.contains("--no-bookmarks");options.writeMetadata = !args.contains("--no-metadata")
+        if let raw=args.first(where:{$0.hasPrefix("--dpi=")}) {options.fallbackDPI=Double(raw.dropFirst(6)) ?? 0}
+        let cancelAfter=args.first(where:{$0.hasPrefix("--cancel-after=")}).flatMap {Int($0.dropFirst(15))}
+        let result=try ConversionService.convert(source,stem:target.deletingPathExtension().lastPathComponent,options:options,cancelled:{cancel},progress:{p in if let limit=cancelAfter,p.completed>=limit {cancel=true}})
+        try FileHandle.standardOutput.write(contentsOf:JSONEncoder().encode(result));print("");exit(0)
+    } catch {fputs("\(error.localizedDescription)\n",stderr);exit(1)}
+}
+if args.count >= 3,args[1] == "--ocr-image" {
+    do {
+        let url = URL(fileURLWithPath:args[2])
+        guard let src = CGImageSourceCreateWithURL(url as CFURL,nil),let image = CGImageSourceCreateImageAtIndex(src,0,nil) else { throw ReaderFailure("图像无法读取。") }
+        let options = RecognitionOptions(language:args.first(where:{$0.hasPrefix("--language=")}).map {String($0.dropFirst(11))} ?? "auto",layout:args.first(where:{$0.hasPrefix("--layout=")}).map {String($0.dropFirst(9))} ?? "auto")
+        let lines = try BibliographicOCR.lines(image,options:options),text = TextRecognition.ordered(lines).map(\.text).joined(separator:"\n")
+        let a = BibliographicExtraction.analyse(text)
+        try emit(["text":text,"metadata":a.values,"verticalLines":lines.filter(\.vertical).count,"lines":lines.map {["text":$0.text,"confidence":$0.confidence,"vertical":$0.vertical]}]);exit(0)
+    } catch { fputs("\(error.localizedDescription)\n",stderr);exit(1) }
+}
 if args.count >= 4, ["--apply-draft", "--rename-book", "--update-information"].contains(args[1]) {
     do {
         let book = try BookArchive(url: URL(fileURLWithPath: args[2]))
@@ -32,7 +98,7 @@ if args.count >= 3,["--batch-propose","--batch-apply","--batch-merge"].contains(
                 do {
                     let proposal = try autoreleasepool { try BatchNaming.analyse(url,ocr:!args.contains("--no-ocr")) }
                     let data = try JSONSerialization.jsonObject(with:JSONEncoder().encode(proposal)) as! [String:Any]
-                    rows.append(["path":url.path,"proposal":data,"candidates":proposal.candidates,"reviewReasons":proposal.reviewReasons])
+                    rows.append(["path":url.path,"proposal":data,"candidates":proposal.candidates,"suggestedName":proposal.suggestedName,"reviewReasons":proposal.reviewReasons])
                 } catch { rows.append(["path":url.path,"error":error.localizedDescription]) }
             }
             try emit(["books":rows,"count":urls.count]); exit(0)
@@ -41,7 +107,7 @@ if args.count >= 3,["--batch-propose","--batch-apply","--batch-merge"].contains(
             let input = try JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:args[2]))) as! [String:Any]
             let evidence = try JSONDecoder().decode([NamingEvidence].self,from:JSONSerialization.data(withJSONObject:input["evidence"] ?? []))
             let proposal = BatchNaming.merge(original:input["original"] as? [String:String] ?? [:],evidence:evidence)
-            try emit(["metadata":proposal.metadata,"candidates":proposal.candidates,"reviewReasons":proposal.reviewReasons]); exit(0)
+            try emit(["metadata":proposal.metadata,"candidates":proposal.candidates,"suggestedName":proposal.suggestedName,"reviewReasons":proposal.reviewReasons]); exit(0)
         }
         let input = try JSONDecoder().decode([BatchNameRequest].self,from:Data(contentsOf:URL(fileURLWithPath:args[2])))
         let errors = BatchNaming.preflight(input)
@@ -132,6 +198,49 @@ if args.count >= 8, args[1] == "--ocr-region" {
         let text = try ContentsRegionRecognizer.recognize(cropped)
         try emit(["text":text,"contentsText":ContentsOCRText.prepare(text),"width":cropped.width,"height":cropped.height]); exit(0)
     } catch { fputs("\(error.localizedDescription)\n",stderr); exit(1) }
+}
+if args.count == 2,args[1] == "--naming-model-tests" {
+ var checks: [String] = []
+ func check(_ yes: Bool,_ title: String) throws { guard yes else {throw ReaderFailure(title)}; checks.append(title) }
+ func e(_ field: String,_ value: String,_ source: String,_ inferred: Bool = false,_ page: Int? = 1) -> NamingEvidence { NamingEvidence(field:field,value:value,source:source,page:page,inferred:inferred) }
+ let suite = "UVZNamingTests."+UUID().uuidString, defaults = UserDefaults(suiteName:suite)!
+ defer { defaults.removePersistentDomain(forName:suite) }
+ do {
+  let automatic = NamingPreferences.automatic
+  try check(NamingPreferences.pattern(automatic,metadata:["丛书名":"丛书"],defaults:defaults)==FilenameTemplate.presets[1],"有丛书名自动选择含丛书格式")
+  try check(NamingPreferences.pattern(automatic,metadata:["丛书名":"  "],defaults:defaults)==FilenameTemplate.presets[0],"空丛书名自动选择无丛书格式")
+  let a = try NamingPreferences.save(name:"按书名",pattern:"{书名}_{SS号}",defaults:defaults)
+  let b = try NamingPreferences.save(name:"按作者",pattern:"{作者}·{书名}",defaults:defaults)
+  try check(NamingPreferences.library(defaults).count == 2 && NamingPreferences.library(UserDefaults(suiteName:suite)!) == NamingPreferences.library(defaults),"多条格式持久保存，重新读取不丢失")
+  _ = try NamingPreferences.save(id:a,name:"书名及日期",pattern:"{书名}_{出版日期}",defaults:defaults)
+  try check(NamingPreferences.library(defaults).count == 2 && NamingPreferences.library(defaults).first!.name == "书名及日期","更新原格式保留ID及条数")
+  do { _ = try NamingPreferences.save(name:"按作者",pattern:"{书名}",defaults:defaults); throw ReaderFailure("accepted duplicate") } catch let err as ReaderFailure where err.message != "accepted duplicate" { checks.append("重名自定义格式拒绝") }
+  do { _ = try NamingPreferences.save(name:"无效",pattern:"{不存在}",defaults:defaults); throw ReaderFailure("accepted token") } catch let err as ReaderFailure where err.message != "accepted token" { checks.append("无效占位符在保存前拒绝") }
+  defaults.set(b,forKey:"settings.namingStyle"); NamingPreferences.delete(b,defaults:defaults)
+  try check(NamingPreferences.library(defaults).count == 1 && NamingPreferences.preferred(defaults)==automatic,"删除当前格式后回退自动命名")
+  let evidence = [e("书名","研究丛书  实际书名","BookInfo.dat"),e("书名","实际书名","CIP著录"),e("书名","实际书名","出版信息"),e("作者","张三著；李四总主编","BookInfo.dat"),e("作者","张三著","CIP著录"),e("作者","张三","出版信息"),e("书名","广告语","封面",true)]
+  let original = ["书名":"研究丛书  实际书名","作者":"张三著；李四总主编","自定义":"保留"]
+  let d = MetadataResolver.select(original:original,evidence:evidence)
+  try check(d.values["书名"] == "实际书名" && d.values["作者"] == "张三著" && d.values["自定义"] == "保留","CIP与出版信息印证后替换原值，分清丛书与总主编，保留未知字段")
+  try check(!d.uncertain.contains("书名"),"不把低质量封面推测当作可靠反证")
+  let locked = MetadataResolver.select(original:original,evidence:evidence,locked:["作者"])
+  try check(locked.values["作者"] == original["作者"] && locked.values["书名"] == "实际书名","手工修改字段保护，不阻止其他字段自动比较")
+  let ambiguous = MetadataResolver.select(original:["书名":"原书"],evidence:[e("书名","原书","BookInfo.dat"),e("书名","另一书","CIP著录")])
+  try check(ambiguous.values["书名"] == "原书" && ambiguous.uncertain.contains("书名"),"单一冲突来源保留原值并提示核对")
+  let repeated = MetadataResolver.select(original:["书名":"原书"],evidence:[e("书名","原书","BookInfo.dat")]+Array(repeating:e("书名","另一书","CIP著录"),count:10))
+  try check(repeated.values["书名"] == "原书","重复识别的同一来源不增加票数")
+  let date = MetadataResolver.select(original:["出版日期":"2020"],evidence:[e("出版日期","2020","BookInfo.dat"),e("出版日期","2020.08","出版信息")])
+  try check(date.values["出版日期"] == "2020.08","同年明确月份自动补全")
+  let bad = MetadataResolver.select(original:["ISBN":"9780306406158"],evidence:[e("ISBN","9780306406157","CIP著录")])
+  try check(bad.values["ISBN"] == "9780306406157","无效ISBN原值可由校验通过的著录替换")
+  let noise = MetadataResolver.select(original:["作者":"张三"],evidence:[e("作者","责任编辑 李四","出版信息"),e("作者","王五","封面",true)])
+  try check(noise.values["作者"] == "张三","编辑人员和低质量推测不覆盖原作者")
+  let noInfo = MetadataResolver.select(original:[:],evidence:[e("书名","推测书名","封面",true)])
+  try check(noInfo.values["书名"] == "推测书名" && noInfo.uncertain.contains("书名"),"仅有版面推测时给出草稿并提示核对")
+  let publisher = MetadataResolver.select(original:["出版社":"示例出版社"],evidence:[e("出版社","示例出版社","CIP著录"),e("出版社","另一出版社","出版信息")])
+  try check(publisher.uncertain.contains("出版社"),"多个明确出版项不一致时保持冲突提示")
+  try emit(["passed":checks.count,"checks":checks]); exit(0)
+ } catch { fputs("NAMING_MODEL_FAILED \(error.localizedDescription)\n",stderr); exit(1) }
 }
 if args.count == 2, args[1] == "--region-model-tests" {
     var checks: [String] = []
@@ -317,6 +426,10 @@ if args.count >= 4, args[1] == "--smoke-test" || args[1] == "--editor-ui-test" |
     delegate.regionTest = args[1] == "--region-ui-test"
     delegate.initialURL = URL(fileURLWithPath: args[2])
     delegate.smokeOutput = URL(fileURLWithPath: args[3])
+} else if args.count == 4,args[1] == "--conversion-ui-test" {
+    delegate.conversionTest=true;delegate.batchFolderURL=URL(fileURLWithPath:args[2]);delegate.smokeOutput=URL(fileURLWithPath:args[3])
+} else if args.count == 4,args[1] == "--policy-ui-test" {
+    delegate.policyTest = true; delegate.batchFolderURL = URL(fileURLWithPath:args[2]); delegate.smokeOutput = URL(fileURLWithPath:args[3])
 } else if args.count == 4,args[1] == "--batch-ui-test" {
     delegate.batchTest = true; delegate.batchFolderURL = URL(fileURLWithPath:args[2]); delegate.smokeOutput = URL(fileURLWithPath:args[3])
 } else if args.count == 3,args[1] == "--identity-ui-test" {

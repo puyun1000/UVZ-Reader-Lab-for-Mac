@@ -72,6 +72,8 @@ final class ReaderScrollView: NSScrollView {
 }
 
 final class PageDocumentView: NSView {
+    var onContextMenu:(()->NSMenu?)?
+    override func menu(for event:NSEvent)->NSMenu? {onContextMenu?()}
     var onDoubleClick: ((NSEvent) -> Void)?
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
@@ -98,6 +100,8 @@ final class PageDocumentView: NSView {
 }
 
 final class PageTile: NSView, ImageAnalysisOverlayViewDelegate {
+    var onContextMenu:(()->NSMenu?)?
+    override func menu(for event:NSEvent)->NSMenu? {onContextMenu?()}
     let imageView = NSImageView()
     let overlay = ImageAnalysisOverlayView(frame: .zero)
     var onDoubleClick: ((NSEvent) -> Void)?
@@ -117,6 +121,16 @@ final class PageTile: NSView, ImageAnalysisOverlayViewDelegate {
     override func layout() {
         super.layout(); imageView.frame = bounds; overlay.frame = bounds; overlay.setContentsRectNeedsUpdate()
     }
+    func overlayView(_ overlayView:ImageAnalysisOverlayView,updatedMenuFor menu:NSMenu,for event:NSEvent,at point:CGPoint)->NSMenu {
+        ChineseMenus.localize(menu)
+        let item=NSMenuItem(title:"转换后复制",action:nil,keyEquivalent:"");item.submenu=TextConversion.menu(target:self,action:#selector(convertCopiedSelection),copy:true);item.submenu?.autoenablesItems=false
+        item.submenu?.items.forEach {$0.isEnabled = !overlayView.selectedText.isEmpty};menu.addItem(.separator());menu.addItem(item)
+        if let common=onContextMenu?() {menu.addItem(.separator());for item in common.items {menu.addItem(item.copy() as! NSMenuItem)}}
+        return menu
+    }
+    func overlayView(_ overlayView:ImageAnalysisOverlayView,needsUpdate menu:NSMenu) {ChineseMenus.localize(menu)}
+    func overlayView(_ overlayView:ImageAnalysisOverlayView,willOpen menu:NSMenu) {ChineseMenus.localize(menu)}
+    @objc private func convertCopiedSelection(_ item:NSMenuItem) {let text=overlay.selectedText;guard !text.isEmpty else{return};NSPasteboard.general.clearContents();NSPasteboard.general.setString(TextConversion.apply(text,item.tag),forType:.string)}
     func contentsRect(for overlayView: ImageAnalysisOverlayView) -> CGRect { CGRect(x: 0, y: 0, width: 1, height: 1) }
     func contentView(for overlayView: ImageAnalysisOverlayView) -> NSView? { imageView }
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -169,4 +183,8 @@ enum PageImageFactory {
         }
         return result
     }
+}
+
+final class ReaderEmptyView: NSView {
+    override func draw(_ dirtyRect:NSRect) {NSColor.windowBackgroundColor.setFill();dirtyRect.fill()}
 }

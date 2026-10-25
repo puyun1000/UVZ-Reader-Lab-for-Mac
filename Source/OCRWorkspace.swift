@@ -59,14 +59,14 @@ final class FormScrollView: NSScrollView {
 }
 
 final class OCRTextReview: NSObject, NSWindowDelegate {
-    let window = NSWindow(contentRect: NSRect(x: 0,y: 0,width: 820,height: 720),styleMask: [.titled,.closable,.resizable,.miniaturizable],backing: .buffered,defer: false)
-    let text = NSTextView()
+    let window = ChineseWindow(contentRect: NSRect(x: 0,y: 0,width: 820,height: 720),styleMask: [.titled,.closable,.resizable,.miniaturizable],backing: .buffered,defer: false)
+    let text = ChineseTextView()
     init(text value: String) {
         super.init(); window.title = "版权页识别原文 — 放大核对"; window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 480,height: 360); window.delegate = self
         let scroll = ocrTextScroll(text, editable: false); text.string = value
         let smaller = NSButton(title: "减小字号",target: self,action: #selector(smallerText)); smaller.bezelStyle = .rounded
         let larger = NSButton(title: "增大字号",target: self,action: #selector(largerText)); larger.bezelStyle = .rounded
-        let tools = NSStackView(views: [NSTextField(labelWithString: "可选择文字并复制；窗口可自由放大。"),NSView(),smaller,larger]); tools.spacing = 8
+        let tools = NSStackView(views: [NSTextField(labelWithString: "选择文字后可复制或转换；窗口可自由放大。"),TextConversion.button(for:text),NSView(),smaller,larger]); tools.spacing = 8
         let root = NSStackView(views: [tools,scroll]); root.orientation = .vertical; root.alignment = .leading; root.spacing = 10
         let host = NSView(); window.contentView = host; root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: host.leadingAnchor,constant: 16),root.trailingAnchor.constraint(equalTo: host.trailingAnchor,constant: -16),root.topAnchor.constraint(equalTo: host.topAnchor,constant: 16),root.bottomAnchor.constraint(equalTo: host.bottomAnchor,constant: -16),scroll.widthAnchor.constraint(equalTo: root.widthAnchor),tools.widthAnchor.constraint(equalTo: root.widthAnchor)])
@@ -123,9 +123,10 @@ private final class RegionOutline: NSView {
 }
 
 final class RegionOCRController: NSObject, NSWindowDelegate, NSSplitViewDelegate {
-    let window = NSWindow(contentRect: NSRect(x: 0,y: 0,width: 1120,height: 770),styleMask: [.titled,.closable,.resizable],backing: .buffered,defer: false)
+    let recognitionControls = RecognitionControls()
+    let window = ChineseWindow(contentRect: NSRect(x: 0,y: 0,width: 1120,height: 770),styleMask: [.titled,.closable,.resizable],backing: .buffered,defer: false)
     let canvas = RegionCanvas(frame: .zero)
-    let resultText = NSTextView()
+    let resultText = ChineseTextView()
     let pageField = NSTextField()
     let splitOnImport = NSButton(checkboxWithTitle: "添加时分离末尾页码",target: nil,action: nil)
     let append = NSButton(checkboxWithTitle: "连续框选时追加结果",target: nil,action: nil)
@@ -160,7 +161,7 @@ final class RegionOCRController: NSObject, NSWindowDelegate, NSSplitViewDelegate
         canvas.onSelected = { [weak self] in self?.recognizeSelection() }
         let textScroll = ocrTextScroll(resultText,editable: true,font: .monospacedSystemFont(ofSize: 14,weight: .regular))
         append.state = .on; splitOnImport.state = .on
-        let resultTools = NSStackView(views: [append,NSView(),button("分离末尾页码",#selector(splitNumbers)),button("清空",#selector(clearResult))]); resultTools.spacing = 6
+        let resultTools = NSStackView(views: [append,TextConversion.button(for:resultText),NSView(),button("分离末尾页码",#selector(splitNumbers)),button("清空",#selector(clearResult))]); resultTools.spacing = 6
         let right = NSStackView(views: [NSTextField(labelWithString: "识别结果（可编辑）"),textScroll,resultTools]); right.orientation = .vertical; right.alignment = .leading; right.spacing = 8
         for view in [textScroll,resultTools] { view.widthAnchor.constraint(equalTo: right.widthAnchor).isActive = true }
         split.isVertical = true; split.dividerStyle = .thin; split.delegate = self; split.addArrangedSubview(imageScroll); split.addArrangedSubview(right)
@@ -171,10 +172,11 @@ final class RegionOCRController: NSObject, NSWindowDelegate, NSSplitViewDelegate
         let close = button("取消",#selector(close)); close.keyEquivalent = "\u{1b}"
         let options = NSStackView(views: [splitOnImport,NSTextField(labelWithString: "选中结果中的部分文字时，仅添加选中内容；添加前可直接修改结果。")]); options.spacing = 12
         let footer = NSStackView(views: [button("识别所选区域",#selector(recognizeSelection)),NSView(),placement,close,importButton]); footer.spacing = 8
-        let root = NSStackView(views: [tools,split,options,status,footer]); root.orientation = .vertical; root.alignment = .leading; root.spacing = 12
+        let recognitionOptions = NSStackView(views:[NSTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,NSView()]); recognitionOptions.spacing = 8
+        let root = NSStackView(views: [tools,recognitionOptions,split,options,status,footer]); root.orientation = .vertical; root.alignment = .leading; root.spacing = 12
         let host = NSView(); window.contentView = host; root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: host.leadingAnchor,constant: 16),root.trailingAnchor.constraint(equalTo: host.trailingAnchor,constant: -16),root.topAnchor.constraint(equalTo: host.topAnchor,constant: 16),root.bottomAnchor.constraint(equalTo: host.bottomAnchor,constant: -16)])
-        for view in [tools,split,options,status,footer] { view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true }
+        for view in [tools,recognitionOptions,split,options,status,footer] { view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true }
         split.heightAnchor.constraint(greaterThanOrEqualToConstant: 360).isActive = true
         NotificationCenter.default.addObserver(self,selector: #selector(viewportChanged),name: NSView.frameDidChangeNotification,object: imageScroll.contentView)
         imageScroll.contentView.postsFrameChangedNotifications = true
@@ -221,10 +223,10 @@ final class RegionOCRController: NSObject, NSWindowDelegate, NSSplitViewDelegate
         do {
             let cropped = try RegionGeometry.crop(image,rect: selection)
             invalidate(); recognizing = true; importButton.isEnabled = false
-            let current = token, appendText = append.state == .on, originalText = resultText.string
+            let current = token, appendText = append.state == .on, originalText = resultText.string, options = recognitionControls.options
             status.stringValue = "正在识别框选区域（\(cropped.width) × \(cropped.height)）…"
             queue.addOperation { [weak self] in
-                let result = Result { try ContentsRegionRecognizer.recognize(cropped) }
+                let result = Result { try ContentsRegionRecognizer.recognize(cropped,options:options) }
                 DispatchQueue.main.async {
                     guard let self,!self.closed,self.token == current else { return }; self.recognizing = false; self.importButton.isEnabled = true
                     switch result {
@@ -285,11 +287,10 @@ enum ContentsRegionRecognizer {
             }.joined()
         }.joined(separator: "\n")
     }
-    static func recognize(_ image: CGImage) throws -> String {
-        let request = VNRecognizeTextRequest(); request.recognitionLevel = .accurate; request.usesLanguageCorrection = true
-        request.recognitionLanguages = ["zh-Hans","zh-Hant","en-US"]
-        try VNImageRequestHandler(cgImage: image,options: [:]).perform([request])
-        return assemble((request.results ?? []).compactMap { item in item.topCandidates(1).first.map { Line(text: $0.string,box: item.boundingBox) } })
+    static func recognize(_ image: CGImage,options: RecognitionOptions = .saved) throws -> String {
+        let lines = try TextRecognition.lines(image,options:options)
+        if lines.contains(where: \.vertical) { return TextRecognition.ordered(lines).map(\.text).joined(separator:"\n") }
+        return assemble(lines.map { Line(text:$0.text,box:$0.box) })
     }
 }
 

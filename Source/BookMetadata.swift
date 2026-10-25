@@ -4,7 +4,7 @@ import Vision
 /// Canonical bibliographic fields; unknown BookInfo keys always survive editing.
 enum BookMetadata {
     static let fields = ["ISBN", "书名", "作者", "丛书名", "出版社", "出版日期", "页数", "SS号", "DX号", "摘要"]
-    static let aliases = ["年份": "出版日期", "出版时间": "出版日期", "丛书": "丛书名", "总页数": "页数", "内容提要": "摘要", "内容简介": "摘要", "ISBN号": "ISBN", "DXID": "DX号", "SSID": "SS号"]
+    static let aliases = ["書名":"书名", "叢書名":"丛书名", "出版年月":"出版日期", "頁數":"页数", "總頁數":"页数", "內容簡介":"摘要", "年份": "出版日期", "出版时间": "出版日期", "丛书": "丛书名", "总页数": "页数", "内容提要": "摘要", "内容简介": "摘要", "ISBN号": "ISBN", "DXID": "DX号", "SSID": "SS号"]
     static func canonical(_ input: [String: String]) -> [String: String] {
         var output = input
         for (old, key) in aliases.sorted(by: { $0.key < $1.key }) where output[key, default: ""].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -82,11 +82,7 @@ enum CopyrightMetadata {
         return false
     }
     static func recognize(_ image: CGImage) throws -> String {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate; request.usesLanguageCorrection = true
-        request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"]
-        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+        try TextRecognition.lines(image).map(\.text).joined(separator:"\n")
     }
     static func candidates(_ book: BookArchive, currentPage: Int? = nil) -> [Int] {
         if let currentPage { return [min(book.pages.count - 1, max(0, currentPage))] }
@@ -94,7 +90,7 @@ enum CopyrightMetadata {
         if !copyright.isEmpty { return Array(copyright.prefix(4)) }
         return Array(0..<min(6, book.pages.count))
     }
-    static func recognize(book: BookArchive, currentPage: Int? = nil, cached: [Int: String] = [:]) throws -> MetadataRecognition {
+    static func recognize(book: BookArchive, currentPage: Int? = nil, cached: [Int: String] = [:], options: RecognitionOptions = .saved) throws -> MetadataRecognition {
         var pages = candidates(book, currentPage: currentPage)
         if currentPage == nil {
             for group in [0,1] { if let index = book.pages.firstIndex(where:{$0.key.group == group}),!pages.contains(index) { pages.append(index) } }
@@ -102,9 +98,11 @@ enum CopyrightMetadata {
         var text = "", evidence: [NamingEvidence] = [], notes: [String] = [], visited: [Int] = []
         for page in pages {
             let image = try autoreleasepool { try book.pageImage(at:page) }
-            let lines = try BibliographicOCR.lines(image)
-            let recognized = cached[page].flatMap { $0.isEmpty ? nil : $0 } ?? lines.map(\.text).joined(separator:"\n")
-            let role = book.pages[page].key.group == 0 ? "封面" : book.pages[page].key.group == 1 ? "书名页" : "版权页"
+            let lines = try BibliographicOCR.lines(image,options:options)
+            if lines.contains(where:{$0.confidence<0.35}) { notes.append("物理第\(page+1)页部分文字识别不清，请核对原图") }
+            let fresh = lines.map(\.text).joined(separator:"\n")
+            let recognized = fresh.isEmpty ? cached[page] ?? "" : fresh
+            let role = book.usesPDGNumbering ? (book.pages[page].key.group == 0 ? "封面" : book.pages[page].key.group == 1 ? "书名页" : "版权页") : BibliographicExtraction.isCopyright(recognized) ? "版权页" : page == 0 ? "封面" : "书名页"
             visited.append(page+1); text += "—— \(role) · 物理第 \(page+1) 页 ——\n"+recognized+"\n"
             if role == "版权页" || currentPage != nil {
                 let analysis = BibliographicExtraction.analyse(recognized)
@@ -123,8 +121,8 @@ enum CopyrightMetadata {
         let proposal = BatchNaming.merge(original:[:],evidence:evidence,notes:notes)
         for key in BookMetadata.fields where evidence.contains(where:{$0.field == key && !BatchNaming.equivalent(key,$0.value,proposal.metadata[key,default:""])}) { notes.append(key+"的来源信息有差异，请逐项核对") }
         let original = BookMetadata.canonical(book.metadata)
-        for key in BookMetadata.fields where !original[key,default:""].isEmpty && !proposal.metadata[key,default:""].isEmpty && !BatchNaming.equivalent(key,original[key]!,proposal.metadata[key]!) { notes.append(key+"与原有图书信息不同，原值保留，请核对") }
+        for key in BookMetadata.fields where !original[key,default:""].isEmpty && !proposal.metadata[key,default:""].isEmpty && !BatchNaming.equivalent(key,original[key]!,proposal.metadata[key]!) { notes.append(key+"与原有图书信息不同，已参与自动比对") }
         let stored = original.filter { BookMetadata.fields.contains($0.key) && !$0.value.isEmpty }.map { NamingEvidence(field:$0.key,value:$0.value,source:book.usesPDGNumbering ? "BookInfo.dat" : "文档信息",page:nil,inferred:false) }
-        return MetadataRecognition(values:proposal.metadata,text:text,pages:visited,evidence:stored+evidence,notes:Array(Set(notes)).sorted())
+        return MetadataRecognition(values:MetadataResolver.select(original:original,evidence:stored+evidence).values,text:text,pages:visited,evidence:stored+evidence,notes:Array(Set(notes)).sorted())
     }
 }

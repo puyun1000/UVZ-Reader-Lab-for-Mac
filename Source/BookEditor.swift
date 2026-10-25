@@ -8,7 +8,7 @@ final class EditorField: NSTextField {
 
 /// A draft-only editor. Changes reach the book only after the Save button succeeds.
 final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSWindowDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSSplitViewDelegate {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 790), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    let window = ChineseWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 790), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     let contentsTable = ContentsOutlineView()
     let structuralUndo = UndoManager()
     var editingUndoManager: UndoManager? { textActive ? textView.undoManager : (window.firstResponder is NSTextView ? window.firstResponder?.undoManager : structuralUndo) }
@@ -140,7 +140,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         baseField.widthAnchor.constraint(equalToConstant: 56).isActive = true; baseField.delegate = self
         let base = NSStackView(views: [NSTextField(labelWithString: "正文第 1 页所在物理页"), baseField]); base.spacing = 6; base.isHidden = book.usesPDGNumbering
         let split = makeButton("分离末尾页码", #selector(splitPageNumbers))
-        let tools = NSStackView(views: [base, NSView(), makeButton("降一级", #selector(indentText)), makeButton("升一级", #selector(outdentText)), split]); tools.spacing = 6
+        let tools = NSStackView(views: [base, TextConversion.button(for:textView), NSView(), makeButton("降一级", #selector(indentText)), makeButton("升一级", #selector(outdentText)), split]); tools.spacing = 6
         textView.setFrameSize(NSSize(width: 780, height: 400)); textView.minSize = NSSize(width: 0, height: 300); textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isRichText = false; textView.allowsUndo = true; textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.isAutomaticSpellingCorrectionEnabled = false; textView.isAutomaticQuoteSubstitutionEnabled = false; textView.isAutomaticDashSubstitutionEnabled = false
@@ -388,13 +388,21 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         controller.onImport = { [weak self] text,atEnd in self?.insertRecognizedContents(text,atEnd: atEnd) }
         controller.show(on: window)
     }
-    func insertRecognizedContents(_ text: String,atEnd: Bool) {
+    @discardableResult func insertReferenceContents(_ text:String)->Bool {
+        guard !busy,!window.hasDocumentDialog else{return false}
+        if !textActive {showContentsTab()}
+        guard commitText() else{return false}
+        activeCategory=0;categoryPopup.selectItem(at:0);categoryControl.selectedSegment=0;renderText()
+        insertRecognizedContents(text,atEnd:true,sourceName:"在线参考目录")
+        return true
+    }
+    func insertRecognizedContents(_ text: String,atEnd: Bool,sourceName:String = "框选识别结果") {
         if !textActive { showContentsTab() }
         let source = textView.string, position = atEnd ? (source as NSString).length : textView.selectedRange().location
         let (value,range) = ContentsOCRText.inserting(text,into: source,at: position)
         textView.breakUndoCoalescing(); textView.insertText(value,replacementRange: range); textView.breakUndoCoalescing()
         textView.setSelectedRange(NSRange(location: range.location+(value as NSString).length,length: 0)); textView.scrollRangeToVisible(textView.selectedRange())
-        message.textColor = .secondaryLabelColor; message.stringValue = "已添加框选识别结果。可继续修正页码、TAB层级；保存前不会改写图书，Command+Z 可撤销此次添加。"
+        message.textColor = .secondaryLabelColor; message.stringValue = "已添加\(sourceName)。可继续修正页码、TAB层级；保存前不会改写图书，Command+Z 可撤销此次添加。"
         window.makeFirstResponder(textView)
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { if !busy { cancel() }; return false }

@@ -4,7 +4,7 @@ final class PageProofImageView: NSImageView {
     override var intrinsicContentSize: NSSize { NSSize(width:NSView.noIntrinsicMetric,height:NSView.noIntrinsicMetric) }
 }
 final class PageRepairWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
-    let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1220,height:850),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
+    let window = ChineseWindow(contentRect:NSRect(x:0,y:0,width:1220,height:850),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
     let pageTable = NSTableView(), findingTable = NSTableView()
     let typePopup = NSPopUpButton(), numberField = NSTextField(string:"1")
     let search = NSSearchField(), physicalField = NSTextField(string:"1")

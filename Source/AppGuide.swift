@@ -25,8 +25,8 @@ enum PageLayoutIcon {
 }
 
 final class AppGuide: NSObject {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 690), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-    private let tabs = NSSegmentedControl(), text = NSTextView()
+    let window = ChineseWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 690), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    private let tabs = NSSegmentedControl(), text = ChineseTextView()
     override init() {
         super.init(); window.title = "UVZ Reader Lab 帮助"; window.isReleasedWhenClosed = false; window.minSize = NSSize(width: 650, height: 480)
         let host = NSView(); window.contentView = host
@@ -47,7 +47,7 @@ final class AppGuide: NSObject {
             let heading = line.hasPrefix("#"), level = line.prefix { $0 == "#" }.count
             let value = heading ? String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces) : line
             let paragraph = NSMutableParagraphStyle(); paragraph.paragraphSpacing = heading ? 12 : 6; paragraph.lineSpacing = 4
-            let font: NSFont = heading ? .systemFont(ofSize: level == 1 ? 24 : 17, weight: .semibold) : .systemFont(ofSize: 14)
+            let font: NSFont = heading ? .systemFont(ofSize: level == 1 ? 24 : (level == 2 ? 18 : 15), weight: .semibold) : .systemFont(ofSize: 14)
             output.append(NSAttributedString(string: value + "\n", attributes: [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]))
         }
         text.textStorage?.setAttributedString(output); text.setSelectedRange(NSRange(location: 0, length: 0)); text.scrollRangeToVisible(NSRange(location: 0, length: 0))

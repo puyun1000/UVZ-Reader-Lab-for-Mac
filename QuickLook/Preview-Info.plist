@@ -4,43 +4,47 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh-Hans</string>
-	<key>CFBundleSupportedPlatforms</key>
-	<array>
-		<string>MacOSX</string>
-	</array>
+	<key>CFBundleDisplayName</key>
+	<string>UVZ Reader Lab 图书预览</string>
 	<key>CFBundleExecutable</key>
 	<string>UVZPreview</string>
 	<key>CFBundleIdentifier</key>
 	<string>local.uvzreaderlab.rebuild.preview</string>
 	<key>CFBundleName</key>
 	<string>UVZPreview</string>
-	<key>CFBundleDisplayName</key>
-	<string>UVZ Reader Lab 封面预览</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.8.0</string>
+	<string>0.15.0</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>MacOSX</string>
+	</array>
 	<key>CFBundleVersion</key>
-	<string>8</string>
+	<string>16</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSExtension</key>
 	<dict>
-		<key>NSExtensionPointIdentifier</key>
-		<string>com.apple.quicklook.preview</string>
-		<key>NSExtensionPrincipalClass</key>
-		<string>UVZPreviewProvider</string>
 		<key>NSExtensionAttributes</key>
 		<dict>
+			<key>QLIsDataBasedPreview</key>
+			<false/>
 			<key>QLSupportedContentTypes</key>
 			<array>
 				<string>local.uvzreader.uvz</string>
 			</array>
-			<key>QLIsDataBasedPreview</key>
-			<true/>
 			<key>QLSupportsSearchableItems</key>
 			<false/>
 		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.quicklook.preview</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>UVZPreviewProvider</string>
 	</dict>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hans</string>
+	</array>
 </dict>
 </plist>

@@ -49,15 +49,15 @@ def main():
   with zipfile.ZipFile(new) as z:assert z.read('cov001.pdg')==png and z.read('Bookcontents.dat')=='篇一|01|1|0|6\r\n'.encode('gb18030')
   assert run('--inspect',new)['metadata']==m;assert any('.backup-' in p.name and p.read_bytes()==before for p in lib.iterdir() if p.is_file())
   checks.append('勾选保存信息时更新DAT，保留图像、目录和未知字段，按选项生成备份')
-  pdfr=next(b for b in propose()['books'] if Path(b['path']).resolve()==pdf.resolve());pdfbytes=pdf.read_bytes();apply([request(pdfr,'PDF新名称',{'书名':'PDF测试'})]);newpdf=lib/'PDF新名称.pdf';side=Path(str(newpdf)+'.uvzmeta');assert newpdf.read_bytes()==pdfbytes and (side/'BookInfo.dat').exists()
-  pdfr=next(b for b in propose()['books'] if Path(b['path']).resolve()==newpdf.resolve());oldside=side;apply([request(pdfr,'PDF再次更名')]);assert not oldside.exists() and (lib/'PDF再次更名.pdf.uvzmeta/BookInfo.dat').exists()
-  checks.append('PDF原始字节不变，信息旁存文件夹随两次改名迁移')
+  pdfr=next(b for b in propose()['books'] if Path(b['path']).resolve()==pdf.resolve());pdfbytes=pdf.read_bytes();apply([request(pdfr,'PDF新名称',{'书名':'PDF测试'})]);newpdf=lib/'PDF新名称.pdf';side=Path(str(newpdf)+'.uvzmeta');assert not side.exists() and run('--inspect',newpdf)['metadata']['书名']=='PDF测试'
+  pdfr=next(b for b in propose()['books'] if Path(b['path']).resolve()==newpdf.resolve());oldside=side;apply([request(pdfr,'PDF再次更名')]);assert not oldside.exists() and not (lib/'PDF再次更名.pdf.uvzmeta').exists() and run('--inspect',lib/'PDF再次更名.pdf')['metadata']['书名']=='PDF测试'
+  checks.append('PDF批量信息内嵌保存，两次改名均保留信息且不产生旁置文件')
   current=next(b for b in propose()['books'] if Path(b['path']).resolve()==loose.resolve());apply([request(current,'散页规范名称',{'书名':'散页修订','作者':'叶平'})]);newloose=lib/'散页规范名称';assert (newloose/'000001.pdg').read_bytes()==png and run('--inspect',newloose)['metadata']['书名']=='散页修订'
   checks.append('PDG文件夹作为一本书改名，可选保存信息并保持页面')
-  side=lib/'PDF再次更名.pdf.uvzmeta';pdfr=next(b for b in propose()['books'] if Path(b['path']).name=='PDF再次更名.pdf');(side/'BookInfo.dat').write_text('书名=外部更改');apply([request(pdfr,'旁存变更拒绝')],ok=False)
+  side=lib/'PDF再次更名.pdf.uvzmeta';pdfr=next(b for b in propose()['books'] if Path(b['path']).name=='PDF再次更名.pdf');side.mkdir();(side/'BookInfo.dat').write_text('书名=外部更改');apply([request(pdfr,'旁存变更拒绝')],ok=False)
   checks.append('原文档未变但旁存信息改变时也拒绝旧建议')
   merge=root/'merge.json';merge.write_text(json.dumps(dict(original={'书名':'已有','出版日期':'2020','SS号':'12345678'},evidence=[dict(field='书名',value='另一书',source='CIP著录',inferred=False),dict(field='出版日期',value='2020.08',source='出版信息',inferred=False),dict(field='作者',value='甲',source='封面',inferred=True)])))
-  m=run('--batch-merge',merge);assert m['metadata']['书名']=='已有' and m['metadata']['出版日期']=='2020.08' and '书名来源不一致' in m['reviewReasons'] and '作者为版面推测' in m['reviewReasons']
+  m=run('--batch-merge',merge);assert m['metadata']['书名']=='已有' and m['metadata']['出版日期']=='2020.08' and '书名来源待核对' in m['reviewReasons'] and '作者来源待核对' in m['reviewReasons']
   checks.append('合并保留已有值并列出冲突，允许同年年月补齐，推测值需核对')
  print(json.dumps(dict(passed=len(checks),checks=checks),ensure_ascii=False,indent=2))
 if __name__=='__main__':main()
