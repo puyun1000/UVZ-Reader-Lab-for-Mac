@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tarfile
@@ -13,8 +14,8 @@ from pypdf import PdfWriter
 ROOT = Path(__file__).resolve().parents[1]
 EXE = ROOT / 'UVZ Reader Lab.app/Contents/MacOS/UVZReaderLab'
 
-def run(*args, ok=True):
-    result = subprocess.run([str(EXE), *map(str, args)], capture_output=True, text=True, timeout=180)
+def run(*args, ok=True, env=None):
+    result = subprocess.run([str(EXE), *map(str, args)], capture_output=True, text=True, timeout=180, env=env)
     if ok:
         assert result.returncode == 0, (args, result.stderr)
         return json.loads(result.stdout) if result.stdout.strip() else None
@@ -149,19 +150,26 @@ def main():
         source = ROOT / 'ThirdParty/DjVuLibre/djvulibre-3.5.30.tar.gz'
         with tarfile.open(source) as tar:
             name = 'djvulibre-3.5.30/doc/djvulibre-book-en.djvu'
-            djvu = folder / '真实多页.djvu'; djvu.write_bytes(tar.extractfile(name).read())
-        result = run('--inspect', djvu)
+            djvu_dir = folder / '大明釋教彙目義門'; djvu_dir.mkdir()
+            djvu = djvu_dir / '02030850_大明釋教彙目義門一_明釋寂曉撰.djvu'
+            djvu.write_bytes(tar.extractfile(name).read())
+        # Simulate a Finder-launched app without a UTF-8 locale.
+        finder_env = dict(os.environ)
+        finder_env.pop('LANG', None); finder_env.pop('LC_CTYPE', None)
+        finder_env['LC_ALL'] = 'C'
+        result = run('--inspect', djvu, env=finder_env)
         assert result['pageCount'] == 57 and len(result['chapters']) > 10
+        checks.append('DjVuLibre 在 C locale 下正确打开中文目录和文件名')
         for page in [1, 5, 57]:
             out = folder / f'djvu{page}.png'
-            run('--render-page', djvu, page, out)
+            run('--render-page', djvu, page, out, env=finder_env)
             with Image.open(out) as rendered:
                 assert max(rendered.size) <= 4000 and min(rendered.size) > 1000
                 assert rendered.convert('L').getextrema()[0] < 100
         checks.append('上游真实 57 页 DjVu 页数/原生目录和首中末页解码')
         original = djvu.read_bytes()
-        run('--apply-draft', djvu, edit)
-        assert run('--inspect', djvu)['chapters'] == chapters and run('--inspect',djvu)['metadata']['自定义']=='仍然保留'
+        run('--apply-draft', djvu, edit, env=finder_env)
+        assert run('--inspect', djvu, env=finder_env)['chapters'] == chapters and run('--inspect',djvu,env=finder_env)['metadata']['自定义']=='仍然保留'
         assert not (Path(str(djvu)+'.uvzmeta')/'BookInfo.dat').exists()
         checks.append('DjVu 目录旁存与信息内嵌可共同保存重读')
         bad = folder / '坏.djvu'; bad.write_bytes(b'not a DjVu')

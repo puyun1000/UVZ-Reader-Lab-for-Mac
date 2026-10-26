@@ -154,7 +154,16 @@ enum DjVuTools {
         FileManager.default.createFile(atPath: out.path, contents: nil); FileManager.default.createFile(atPath: err.path, contents: nil)
         let output = try FileHandle(forWritingTo: out), errors = try FileHandle(forWritingTo: err)
         defer { try? output.close(); try? errors.close() }
-        process.executableURL = executable; process.arguments = args; process.standardOutput = output; process.standardError = errors
+        process.executableURL = executable; process.arguments = args
+        // Finder-launched apps may inherit no UTF-8 locale. DjVuLibre then
+        // treats UTF-8 argv bytes as a legacy encoding and percent-escapes
+        // mojibake for non-ASCII paths. Pin the helper process to UTF-8.
+        var environment = ProcessInfo.processInfo.environment
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_CTYPE"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "en_US.UTF-8"
+        process.environment = environment
+        process.standardOutput = output; process.standardError = errors
         try process.run()
         let deadline = Date().addingTimeInterval(limit)
         while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.025) }

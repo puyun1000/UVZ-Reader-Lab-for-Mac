@@ -92,7 +92,7 @@ final class ConversionUITest {
                 text.removeFromSuperview()
                 try check(reader.pageContextMenu().item(withTitle:"框选识别目录…") != nil && reader.pageContextMenu().item(withTitle:"复制页面图像") != nil,"页面右键提供常用阅读及编辑操作")
                 restorePreferences()
-                let data=try JSONSerialization.data(withJSONObject:["passed":true,"checks":checks,"version":"0.15.0"],options:[.prettyPrinted,.sortedKeys]);try data.write(to:output.deletingPathExtension().appendingPathExtension("json"));print("CONVERSION_UI_OK");exit(0)
+                let data=try JSONSerialization.data(withJSONObject:["passed":true,"checks":checks,"version":"0.15.1"],options:[.prettyPrinted,.sortedKeys]);try data.write(to:output.deletingPathExtension().appendingPathExtension("json"));print("CONVERSION_UI_OK");exit(0)
             }
             tick()
         } catch {restorePreferences();fputs("CONVERSION_UI_FAILED \(error.localizedDescription) stage=\(stage)\n",stderr);exit(1)}

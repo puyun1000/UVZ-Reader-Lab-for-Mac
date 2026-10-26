@@ -258,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     host.window.orderOut(nil)
                 }
                 let checks = ["PDF和DjVu保存并重命名同步内嵌信息，不产生旁存文件","单书自动比较已有值并采用CIP与出版信息印证的书名","自动包含丛书，缺失时自动省略","可撤回自动调整，后续手工修改受保护","来源表双击采用对应字段","命名格式管理窗口可新增、更新、删除并持久生效"]
-                try JSONSerialization.data(withJSONObject:["passed":true,"checks":checks,"version":"0.15.0"],options:[.prettyPrinted,.sortedKeys]).write(to:output.deletingPathExtension().appendingPathExtension("json"));print("POLICY_UI_OK");exit(0)
+                try JSONSerialization.data(withJSONObject:["passed":true,"checks":checks,"version":"0.15.1"],options:[.prettyPrinted,.sortedKeys]).write(to:output.deletingPathExtension().appendingPathExtension("json"));print("POLICY_UI_OK");exit(0)
             } catch {failSmoke(error.localizedDescription)}
         }
     }
@@ -537,7 +537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     guide.show(tab: 1); try captureView(guide.window.contentView!, to: output.deletingPathExtension().appendingPathExtension("guide.png"))
                     guide.show(tab: 2); try captureView(guide.window.contentView!, to: output.deletingPathExtension().appendingPathExtension("releases.png")); guide.window.close()
                     smokeChecks.append("应用内离线功能说明与更新说明可以打开")
-                    let report: [String: Any] = ["passed": true, "checks": smokeChecks, "version": "0.15.0"]
+                    let report: [String: Any] = ["passed": true, "checks": smokeChecks, "version": "0.15.1"]
                     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output.deletingPathExtension().appendingPathExtension("json"))
                     print("EDITOR_UI_OK"); exit(0)
                 }
@@ -596,7 +596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     guard reader.editor == nil, reader.hasRenderedImage else { pagingTick(); return }
                     guard reader.book!.chapters.map({$0.pageIndex+1}) == [8,493,494,495], reader.book!.chapters.map(\.level) == [0,0,1,0], reader.state.page == 492 else { throw ReaderFailure("Typed directory save roundtrip") }
                     smokeChecks.append("真实图书副本保存重读，类型页号正确映射并保留阅读位置")
-                    try JSONSerialization.data(withJSONObject:["passed":true,"checks":smokeChecks,"version":"0.15.0"],options:[.prettyPrinted,.sortedKeys]).write(to:output.deletingPathExtension().appendingPathExtension("json"))
+                    try JSONSerialization.data(withJSONObject:["passed":true,"checks":smokeChecks,"version":"0.15.1"],options:[.prettyPrinted,.sortedKeys]).write(to:output.deletingPathExtension().appendingPathExtension("json"))
                     print("PAGING_UI_OK"); exit(0)
                 }
             } catch { failSmoke(error.localizedDescription); return }
@@ -666,7 +666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     guard reader.editor == nil,reader.hasRenderedImage else { regionTick(); return }
                     guard reader.book?.chapters.count==4,reader.book?.chapters.map({$0.pageIndex+1})==[1,2,3,2],reader.book?.metadata["自定义"]=="原字段保留" else { throw ReaderFailure("Region draft saved roundtrip") }
                     smokeChecks.append("保存框选目录后重读，页码与原有BookInfo字段保留")
-                    try JSONSerialization.data(withJSONObject: ["passed":true,"checks":smokeChecks,"text":regionText,"version":"0.15.0"],options: [.prettyPrinted,.sortedKeys]).write(to: output.deletingPathExtension().appendingPathExtension("json"))
+                    try JSONSerialization.data(withJSONObject: ["passed":true,"checks":smokeChecks,"text":regionText,"version":"0.15.1"],options: [.prettyPrinted,.sortedKeys]).write(to: output.deletingPathExtension().appendingPathExtension("json"))
                     print("REGION_UI_OK"); exit(0)
                 }
             } catch { failSmoke(error.localizedDescription); return }
@@ -786,7 +786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 do {
                     let narrow = output.deletingPathExtension().appendingPathExtension("narrow.png")
                     try capture(reader, to: narrow)
-                    let report: [String: Any] = ["passed": true, "checks": smokeChecks, "ocr": smokeOCR, "version": "0.15.0"]
+                    let report: [String: Any] = ["passed": true, "checks": smokeChecks, "ocr": smokeOCR, "version": "0.15.1"]
                     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output.deletingPathExtension().appendingPathExtension("json"))
                     print("UI_LIFECYCLE_OK UI_RENDER_OK OCR=\(smokeOCR)"); exit(0)
                 } catch { failSmoke(String(describing: error)); return }
