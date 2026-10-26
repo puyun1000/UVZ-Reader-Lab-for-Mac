@@ -3,15 +3,15 @@ import AppKit
 /// A single draft for book information, copyright OCR and naming.
 final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSplitViewDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextViewDelegate {
     let window = ChineseWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 880), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-    let nameField = NSTextField(), templateField = NSTextField(), style = NSPopUpButton()
+    let nameField = CenteredTextField(), templateField = CenteredTextField(), style = NSPopUpButton()
     let keys = BookMetadata.fields.filter { $0 != "摘要" }
     let fields: [NSTextField]
     let abstractView = ChineseTextView(), recognitionText = ChineseTextView(), extractionText = ChineseTextView()
     let infoTable = NSTableView(), sourceTable = NSTableView(), infoSplit = NSSplitView()
     let saveMetadata = NSButton(checkboxWithTitle: "将图书信息保存到 BookInfo.dat", target: nil, action: nil)
     let preserveDates = NSButton(checkboxWithTitle: "保持文件日期不变（创建日期与修改日期）", target: nil, action: nil)
-    private let message = NSTextField(wrappingLabelWithString: "")
-    private let pageField = NSTextField(string: "1")
+    private let message = CenteredTextField(wrappingLabelWithString: "")
+    private let pageField = CenteredTextField(string: "1")
     private let evidenceArea = NSView(), evidenceMode = NSSegmentedControl()
     let recognitionControls = RecognitionControls()
     private let recognizeButton = NSButton(title: "识别并交叉核对", target: nil, action: nil)
@@ -46,7 +46,7 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
     init(book: BookArchive) {
         self.book = book
         let draft = FilenameDraft(book: book); original = draft.values
-        fields = BookMetadata.fields.filter { $0 != "摘要" }.map { NSTextField(string: draft.values[$0] ?? "") }
+        fields = BookMetadata.fields.filter { $0 != "摘要" }.map { CenteredTextField(string: draft.values[$0] ?? "") }
         custom = draft.values.keys.filter { !BookMetadata.fields.contains($0) }.sorted().map { ($0, draft.values[$0]!) }
         super.init()
         window.title = "书籍信息与重命名 — " + book.title
@@ -55,13 +55,13 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         let root = NSStackView(); root.orientation = .vertical; root.alignment = .leading; root.spacing = 10
         root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: 18), root.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -18), root.topAnchor.constraint(equalTo: host.topAnchor, constant: 16), root.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -16)])
-        let old = NSTextField(labelWithString: "当前文件：" + book.url.lastPathComponent); old.lineBreakMode = .byTruncatingMiddle; old.toolTip = book.url.path
+        let old = CenteredTextField(labelWithString: "当前文件：" + book.url.lastPathComponent); old.lineBreakMode = .byTruncatingMiddle; old.toolTip = book.url.path
         recognizeButton.target = self; recognizeButton.action = #selector(recognizeCopyright); recognizeButton.bezelStyle = .rounded
         pageField.widthAnchor.constraint(equalToConstant: 48).isActive = true
-        let recognitionOptions = NSStackView(views:[NSTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,NSView()]); recognitionOptions.spacing = 8
-        let source = NSStackView(views: [recognizeButton, button("识别当前阅读页", #selector(recognizeCurrentPage)), NSTextField(labelWithString: "物理页"), pageField, button("识别此页", #selector(recognizeChosenPage)), NSView()]); source.spacing = 8
+        let recognitionOptions = NSStackView(views:[CenteredTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,NSView()]); recognitionOptions.spacing = 8
+        let source = NSStackView(views: [recognizeButton, button("识别当前阅读页", #selector(recognizeCurrentPage)), CenteredTextField(labelWithString: "物理页"), pageField, button("识别此页", #selector(recognizeChosenPage)), NSView()]); source.spacing = 8
         for (key, field) in zip(keys, fields) { field.delegate = self; if key == "出版日期" { field.placeholderString = "YYYY.MM，例如 2026.03" } }
-        let grid = NSGridView(views: zip(keys, fields).map { [NSTextField(labelWithString: $0.0), $0.1] }); grid.columnSpacing = 12; grid.rowSpacing = 6; grid.column(at: 0).width = 68
+        let grid = NSGridView(views: zip(keys, fields).map { [CenteredTextField(labelWithString: $0.0), $0.1] }); grid.columnSpacing = 12; grid.rowSpacing = 6; grid.column(at: 0).width = 68
         for row in keys.indices { grid.row(at: row).height = 26 }
         grid.heightAnchor.constraint(equalToConstant: 282).isActive = true
         let abstract = ocrTextScroll(abstractView, editable: true); abstract.heightAnchor.constraint(equalToConstant: 64).isActive = true; abstractView.string = original["摘要"] ?? ""; abstractView.delegate = self
@@ -69,11 +69,11 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         infoTable.dataSource = self; infoTable.delegate = self; infoTable.rowHeight = 27; infoTable.usesAlternatingRowBackgroundColors = true; infoTable.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         let customScroll = NSScrollView(); customScroll.documentView = infoTable; customScroll.hasVerticalScroller = true; customScroll.heightAnchor.constraint(equalToConstant: 92).isActive = true
         let customTools = NSStackView(views: [button("新增字段", #selector(addInfo)), button("删除自定义字段", #selector(removeInfo)), NSView()]); customTools.spacing = 8
-        let form = NSStackView(views: [grid, NSTextField(labelWithString: "摘要"), abstract, customScroll, customTools]); form.orientation = .vertical; form.alignment = .leading; form.spacing = 8
+        let form = NSStackView(views: [grid, CenteredTextField(labelWithString: "摘要"), abstract, customScroll, customTools]); form.orientation = .vertical; form.alignment = .leading; form.spacing = 8
         for view in [grid, abstract, customScroll, customTools] { view.widthAnchor.constraint(equalTo: form.widthAnchor, constant: -12).isActive = true }
         evidenceMode.segmentCount = 3; evidenceMode.setLabel("比对结果", forSegment: 0); evidenceMode.setLabel("字段来源",forSegment:1); evidenceMode.setLabel("识别原文", forSegment: 2); evidenceMode.trackingMode = .selectOne; evidenceMode.selectedSegment = 0; evidenceMode.target = self; evidenceMode.action = #selector(evidenceChanged)
         let evidenceTools = NSStackView(views: [evidenceMode, NSView(), button("放大原文…", #selector(enlargeRecognition))]); evidenceTools.spacing = 8
-        let extractionHint = NSTextField(wrappingLabelWithString: "自动比较已有信息与各页著录，优先采用明确且相互印证的内容。手工修改的字段保留；双击来源值可手动采用。保存前可撤回本次自动调整。")
+        let extractionHint = CenteredTextField(wrappingLabelWithString: "自动比较已有信息与各页著录，优先采用明确且相互印证的内容。手工修改的字段保留；双击来源值可手动采用。保存前可撤回本次自动调整。")
         extractionHint.font = .systemFont(ofSize: 11); extractionHint.textColor = .secondaryLabelColor
         let right = NSStackView(views: [evidenceTools, evidenceArea, NSStackView(views:[button("重新比对原文", #selector(extractAgain)),button("撤回自动调整",#selector(undoAutomatic))]), extractionHint]); right.orientation = .vertical; right.alignment = .leading; right.spacing = 8
         for view in [evidenceTools, evidenceArea, extractionHint] { view.widthAnchor.constraint(equalTo: right.widthAnchor).isActive = true }
@@ -82,12 +82,12 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         infoSplit.heightAnchor.constraint(greaterThanOrEqualToConstant: 350).isActive = true
         style.addItems(withTitles:namingStyles.map(\.title)+["自定义（未保存）"]); style.selectItem(at:namingStyles.firstIndex(where:{$0.id == NamingPreferences.preferred()}) ?? 0); style.target = self; style.action = #selector(styleChanged)
         style.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let generator = NSStackView(views: [NSTextField(labelWithString: "命名格式"), style, button("生成规范名称", #selector(generateName)),button("管理格式…",#selector(manageTemplates))]); generator.spacing = 8
+        let generator = NSStackView(views: [CenteredTextField(labelWithString: "命名格式"), style, button("生成规范名称", #selector(generateName)),button("管理格式…",#selector(manageTemplates))]); generator.spacing = 8
         templateField.stringValue = FilenameTemplate.presets[0]; templateField.delegate = self
-        let hint = NSTextField(wrappingLabelWithString: "可用字段：" + BookMetadata.fields.map { "{" + $0 + "}" }.joined(separator: " ") + "。可编辑格式；扩展名保留为 ." + book.url.pathExtension)
+        let hint = CenteredTextField(wrappingLabelWithString: "可用字段：" + BookMetadata.fields.map { "{" + $0 + "}" }.joined(separator: " ") + "。可编辑格式；扩展名保留为 ." + book.url.pathExtension)
         hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
         nameField.stringValue = book.url.deletingPathExtension().lastPathComponent
-        let filename = NSStackView(views: [NSTextField(labelWithString: "新文件名"), nameField]); filename.spacing = 8
+        let filename = NSStackView(views: [CenteredTextField(labelWithString: "新文件名"), nameField]); filename.spacing = 8
         saveMetadata.state = ["pdf","djvu","djv"].contains(book.url.pathExtension.lowercased()) ? .off : .on; preserveDates.state = AppSettings().preserveFileDates ? .on : .off
         saveMetadata.isHidden = book.storesNativeInformation
         let options = NSStackView(views: [saveMetadata, preserveDates]); options.spacing = 16
@@ -129,7 +129,7 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         if tableView === sourceTable {
             let e = recognitionSources[row], key = tableColumn?.identifier.rawValue
             let text = key == "field" ? e.field : key == "value" ? e.value : key == "source" ? e.source+(e.inferred ? "（推测）" : "") : e.page.map(String.init) ?? ""
-            let f = NSTextField(labelWithString:text); f.lineBreakMode = .byTruncatingMiddle; f.toolTip = text; return f
+            let f = CenteredTextField(labelWithString:text); f.lineBreakMode = .byTruncatingMiddle; f.toolTip = text; return f
         }
         let field = EditorField(); field.row = row; field.column = tableColumn?.identifier.rawValue ?? "value"; field.delegate = self
         field.stringValue = field.column == "key" ? custom[row].0 : custom[row].1; field.isBordered = false; field.backgroundColor = .clear; return field

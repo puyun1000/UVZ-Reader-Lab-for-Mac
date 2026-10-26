@@ -1,6 +1,6 @@
 import AppKit
 
-final class EditorField: NSTextField {
+final class EditorField: CenteredTextField {
     var row = 0
     var column = ""
     var isInfo = false
@@ -16,11 +16,11 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     var currentPage = 0
     let textView = ContentsTextView()
     let categoryPopup = NSPopUpButton()
-    let baseField = NSTextField(string: "1")
+    let baseField = CenteredTextField(string: "1")
     private var textPane: NSView!
     let modeControl = NSSegmentedControl()
     let categoryControl = NSSegmentedControl()
-    private let pageSummary = NSTextField(wrappingLabelWithString: "")
+    private let pageSummary = CenteredTextField(wrappingLabelWithString: "")
     private var textActive = false
     private var basePage = 1
     private var activeCategory = 0
@@ -30,7 +30,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     private var contentsPane: NSView!
     private(set) var draft: BookEditDraft
     private var book: BookArchive
-    private let message = NSTextField(wrappingLabelWithString: "")
+    private let message = CenteredTextField(wrappingLabelWithString: "")
     private let saveButton = NSButton(title: "保存", target: nil, action: nil)
     private(set) var pageRepair: PageRepairWindow?
     var onPageRepaired: ((BookArchive,[Int:Int]) -> Void)?
@@ -46,8 +46,8 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         let host = NSView(); window.contentView = host
         root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: host.leadingAnchor), root.trailingAnchor.constraint(equalTo: host.trailingAnchor), root.topAnchor.constraint(equalTo: host.topAnchor), root.bottomAnchor.constraint(equalTo: host.bottomAnchor)])
-        let heading = NSTextField(labelWithString: "目录编辑：TAB 缩进文字录入，也可切换树形调整。")
-        let location = NSTextField(wrappingLabelWithString: "保存位置：" + book.editingLocation + "\n备份默认关闭，可在“文件 → 保存前备份原文件”中勾选。保存前的修改均为草稿。")
+        let heading = CenteredTextField(labelWithString: "目录编辑：TAB 缩进文字录入，也可切换树形调整。")
+        let location = CenteredTextField(wrappingLabelWithString: "保存位置：" + book.editingLocation + "\n备份默认关闭，可在“文件 → 保存前备份原文件”中勾选。保存前的修改均为草稿。")
         location.font = .systemFont(ofSize: 11); location.textColor = .secondaryLabelColor
         editorArea.translatesAutoresizingMaskIntoConstraints = false
         modeControl.segmentCount = 2; modeControl.trackingMode = .selectOne
@@ -56,7 +56,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         modeControl.selectedSegment = 0; modeControl.target = self; modeControl.action = #selector(editorModeChanged)
         let check = makeButton("页面编码校对…",#selector(repairPages)); check.isEnabled = book.canCorrectPages
         let warning = PageInspection.structural(book).count
-        let checkHint = NSTextField(labelWithString: warning > 0 ? "发现 \(warning) 条页面编码提示" : "")
+        let checkHint = CenteredTextField(labelWithString: warning > 0 ? "发现 \(warning) 条页面编码提示" : "")
         checkHint.textColor = .systemOrange
         let tabButtons = NSStackView(views: [modeControl, NSView(),checkHint,check]); tabButtons.spacing = 8
         let chapterView = tablePane(contentsTable, columns: [("title", "目录名称", 450), ("type", "页面类型", 90), ("page", "页号", 100), ("physical", "物理页", 85)], controls: [
@@ -138,7 +138,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         categoryControl.target = self; categoryControl.action = #selector(categorySelected); categoryControl.isHidden = !book.usesPDGNumbering
         pageSummary.font = .systemFont(ofSize: 11); pageSummary.textColor = .secondaryLabelColor
         baseField.widthAnchor.constraint(equalToConstant: 56).isActive = true; baseField.delegate = self
-        let base = NSStackView(views: [NSTextField(labelWithString: "正文第 1 页所在物理页"), baseField]); base.spacing = 6; base.isHidden = book.usesPDGNumbering
+        let base = NSStackView(views: [CenteredTextField(labelWithString: "正文第 1 页所在物理页"), baseField]); base.spacing = 6; base.isHidden = book.usesPDGNumbering
         let split = makeButton("分离末尾页码", #selector(splitPageNumbers))
         let tools = NSStackView(views: [base, TextConversion.button(for:textView), NSView(), makeButton("降一级", #selector(indentText)), makeButton("升一级", #selector(outdentText)), split]); tools.spacing = 6
         textView.setFrameSize(NSSize(width: 780, height: 400)); textView.minSize = NSSize(width: 0, height: 300); textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -152,9 +152,9 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         let paragraph = NSMutableParagraphStyle(); paragraph.defaultTabInterval = 32; paragraph.tabStops = []
         textView.defaultParagraphStyle = paragraph
         let scroll = NSScrollView(); scroll.documentView = textView; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.borderType = .bezelBorder
-        let hint = NSTextField(wrappingLabelWithString: book.usesPDGNumbering ? "每行：标题 ⇥ 页号；行首 TAB 定层级。分区内直接填该类型数字页号；全部类型时非正文加 cov／bok／leg／fow／!／att／bac 前缀。@15 表示物理第 15 页。" : "每行：标题 ⇥ 页码；行首 TAB 定层级。先设置正文基准页再录入；基准页之前用 -1、-2 等，@15 表示物理第 15 页。")
+        let hint = CenteredTextField(wrappingLabelWithString: book.usesPDGNumbering ? "每行：标题 ⇥ 页号；行首 TAB 定层级。分区内直接填该类型数字页号；全部类型时非正文加 cov／bok／leg／fow／!／att／bac 前缀。@15 表示物理第 15 页。" : "每行：标题 ⇥ 页码；行首 TAB 定层级。先设置正文基准页再录入；基准页之前用 -1、-2 等，@15 表示物理第 15 页。")
         hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
-        let extra = NSStackView(views: [makeButton("框选识别…", #selector(openRegionOCR)), makeButton("查找与替换…", #selector(findReplace)), makeButton("批量增减页码…", #selector(offsetPages)), NSTextField(labelWithString: "多行选中后可用 TAB / Shift+TAB 调整层级")]); extra.spacing = 8
+        let extra = NSStackView(views: [makeButton("框选识别…", #selector(openRegionOCR)), makeButton("查找与替换…", #selector(findReplace)), makeButton("批量增减页码…", #selector(offsetPages)), CenteredTextField(labelWithString: "多行选中后可用 TAB / Shift+TAB 调整层级")]); extra.spacing = 8
         let stack = NSStackView(views: [categoryControl, pageSummary, tools, extra, scroll, hint]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 8
         for view in [categoryControl, pageSummary, tools, extra, scroll, hint] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
         return stack
@@ -335,7 +335,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     @objc func offsetPages() {
         finishEditing()
         let alert = NSAlert(); alert.messageText = "批量增减页码"; alert.informativeText = "对选中的目录行增减物理页码；无页码的分组保持不变。文本未选择时处理全文。"
-        let field = NSTextField(string: "0"); field.frame = NSRect(x: 0, y: 0, width: 240, height: 26); alert.accessoryView = field; alert.addButton(withTitle: "应用"); alert.addButton(withTitle: "取消")
+        let field = CenteredTextField(string: "0"); field.frame = NSRect(x: 0, y: 0, width: 240, height: 26); alert.accessoryView = field; alert.addButton(withTitle: "应用"); alert.addButton(withTitle: "取消")
         NativeDialog.alert(alert, on: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn, let delta = Int(field.stringValue) else { return }
             do {
@@ -358,7 +358,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     }
     @objc func findReplace() {
         let alert = NSAlert(); alert.messageText = "查找与替换目录文本"; alert.informativeText = "查找会选中下一个匹配；替换全部作用于选中区域，无选择时作用于全文。支持正则表达式，替换中可用 $1 等分组。"
-        let find = NSTextField(), replace = NSTextField(), regex = NSButton(checkboxWithTitle: "正则表达式", target: nil, action: nil)
+        let find = CenteredTextField(), replace = CenteredTextField(), regex = NSButton(checkboxWithTitle: "正则表达式", target: nil, action: nil)
         find.placeholderString = "查找内容"; replace.placeholderString = "替换为"
         let panel = NSStackView(views: [find, replace, regex]); panel.orientation = .vertical; panel.alignment = .leading; panel.spacing = 8; panel.frame = NSRect(x: 0, y: 0, width: 440, height: 94)
         find.widthAnchor.constraint(equalTo: panel.widthAnchor).isActive = true; replace.widthAnchor.constraint(equalTo: panel.widthAnchor).isActive = true

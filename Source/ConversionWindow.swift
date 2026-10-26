@@ -11,15 +11,15 @@ final class ConversionJob {
 }
 final class ConversionWindow: NSObject,NSWindowDelegate,NSTableViewDataSource,NSTableViewDelegate,NSTextFieldDelegate {
     let window = ConversionHostWindow(contentRect:NSRect(x:0,y:0,width:960,height:900),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
-    let table = NSTableView(),nameField = NSTextField(),sourceLabel = NSTextField(wrappingLabelWithString:"选择任务查看完整来源与目标名称")
-    let targetLabel = NSTextField(wrappingLabelWithString:""),summary = NSTextField(labelWithString:"添加图书，转换为 PDF")
+    let table = NSTableView(),nameField = CenteredTextField(),sourceLabel = CenteredTextField(wrappingLabelWithString:"选择任务查看完整来源与目标名称")
+    let targetLabel = CenteredTextField(wrappingLabelWithString:""),summary = CenteredTextField(labelWithString:"添加图书，转换为 PDF")
     let pageProgress = NSProgressIndicator(),totalProgress = NSProgressIndicator()
     let startButton = NSButton(title:"开始转换",target:nil,action:nil),stopButton = NSButton(title:"停止",target:nil,action:nil)
     let naming = NSPopUpButton(),style = NSPopUpButton(),outputChoice = NSPopUpButton()
     let bookmarks = NSButton(checkboxWithTitle:"写入 PDF 书签",target:nil,action:nil),metadata = NSButton(checkboxWithTitle:"内嵌图书信息",target:nil,action:nil),skipBad = NSButton(checkboxWithTitle:"跳过坏页（生成部分 PDF）",target:nil,action:nil)
-    let folderLabel = NSTextField(wrappingLabelWithString:"与来源图书位于同一文件夹")
-    let dpi = NSTextField(string:"300"),logView = ChineseTextView(),logScroll = NSScrollView()
-    private let integrity=NSTextField(wrappingLabelWithString:"选择图书后显示页数与目录信息"),queueHeading=NSTextField(labelWithString:"尚未添加图书")
+    let folderLabel = CenteredTextField(wrappingLabelWithString:"与来源图书位于同一文件夹")
+    let dpi = CenteredTextField(string:"300"),logView = ChineseTextView(),logScroll = NSScrollView()
+    private let integrity=CenteredTextField(wrappingLabelWithString:"选择图书后显示页数与目录信息"),queueHeading=CenteredTextField(labelWithString:"尚未添加图书")
     private let form=ConversionFormScroll(),queueColumn=NSStackView(),settingsColumn=NSStackView()
     private let queue = OperationQueue(),logToggle = NSButton(checkboxWithTitle:"显示任务日志",target:nil,action:nil)
     private let lock = NSLock()
@@ -40,7 +40,7 @@ final class ConversionWindow: NSObject,NSWindowDelegate,NSTableViewDataSource,NS
         window.title="UVZ Reader Lab · 转换";window.identifier = .init("UVZConversion");window.minSize=NSSize(width:760,height:640);window.delegate=self;window.isReleasedWhenClosed=false
         window.onPasteFiles={[weak self] in self?.pasteFiles()}
         let root=DropRootView(frame:.zero);root.onFiles={[weak self] in self?.add($0)};window.contentView=root
-        let title=NSTextField(labelWithString:"转换工作台");title.font = .systemFont(ofSize:22,weight:.semibold)
+        let title=CenteredTextField(labelWithString:"转换工作台");title.font = .systemFont(ofSize:22,weight:.semibold)
         queueHeading.font = .systemFont(ofSize:12);queueHeading.textColor = .secondaryLabelColor
         let heading=NSStackView(views:[title,queueHeading]);heading.orientation = .vertical;heading.alignment = .leading;heading.spacing=3
         let addFile=button("添加文件",#selector(chooseFiles)),addFolder=button("添加文件夹",#selector(chooseFolders));addFile.image=NSImage(systemSymbolName:"doc.badge.plus",accessibilityDescription:nil);addFile.imagePosition = .imageLeading;addFolder.image=NSImage(systemSymbolName:"folder.badge.plus",accessibilityDescription:nil);addFolder.imagePosition = .imageLeading
@@ -71,7 +71,7 @@ final class ConversionWindow: NSObject,NSWindowDelegate,NSTableViewDataSource,NS
     }
     private func button(_ text:String,_ action:Selector)->NSButton {let button=NSButton(title:text,target:self,action:action);button.bezelStyle = .rounded;return button}
     private func buildOutputSettings() {
-        let title=NSTextField(labelWithString:"输出设置");title.font = .systemFont(ofSize:16,weight:.semibold)
+        let title=CenteredTextField(labelWithString:"输出设置");title.font = .systemFont(ofSize:16,weight:.semibold)
         outputChoice.addItems(withTitles:["与原文件同级","自选文件夹"]);outputChoice.target=self;outputChoice.action = #selector(optionsChanged)
         naming.addItems(withTitles:["保留源文件名","按规范模板","仅用书名"]);naming.target=self;naming.action = #selector(optionsChanged);naming.selectItem(at:["source","template","title"].firstIndex(of:UserDefaults.standard.string(forKey:"conversion.naming") ?? "source") ?? 0)
         style.addItems(withTitles:NamingPreferences.styles().map(\.title));style.selectItem(at:NamingPreferences.styles().firstIndex(where:{$0.id == UserDefaults.standard.string(forKey:"conversion.style")}) ?? 0);style.target=self;style.action = #selector(optionsChanged)
@@ -82,15 +82,15 @@ final class ConversionWindow: NSObject,NSWindowDelegate,NSTableViewDataSource,NS
         sourceLabel.font = .systemFont(ofSize:11);sourceLabel.textColor = .secondaryLabelColor;sourceLabel.isSelectable=true;sourceLabel.maximumNumberOfLines=2
         targetLabel.font = .systemFont(ofSize:11);targetLabel.textColor = .secondaryLabelColor;targetLabel.isSelectable=true;targetLabel.maximumNumberOfLines=2
         nameField.maximumNumberOfLines=3;nameField.delegate=self;nameField.setAccessibilityLabel("目标文件名，不含扩展名");nameField.cell?.usesSingleLineMode=false;nameField.cell?.isScrollable=false;nameField.cell?.wraps=true;nameField.lineBreakMode = .byWordWrapping;nameField.font = .systemFont(ofSize:13);nameField.heightAnchor.constraint(equalToConstant:56).isActive=true
-        func row(_ label:String,_ views:[NSView])->NSStackView {let heading=NSTextField(labelWithString:label);heading.widthAnchor.constraint(equalToConstant:70).isActive=true;let row=NSStackView(views:[heading]+views);row.spacing=10;row.heightAnchor.constraint(equalToConstant:28).isActive=true;return row}
+        func row(_ label:String,_ views:[NSView])->NSStackView {let heading=CenteredTextField(labelWithString:label);heading.widthAnchor.constraint(equalToConstant:70).isActive=true;let row=NSStackView(views:[heading]+views);row.spacing=10;row.heightAnchor.constraint(equalToConstant:28).isActive=true;return row}
         let destination=row("保存到",[outputChoice,button("选择文件夹…",#selector(chooseOutput))])
-        let format=row("文件命名",[naming,style]);let nameRow=NSStackView(views:[nameField,NSTextField(labelWithString:".pdf"),button("重新生成",#selector(regenerate))]);nameRow.alignment = .centerY;nameRow.spacing=8
+        let format=row("文件命名",[naming,style]);let nameRow=NSStackView(views:[nameField,CenteredTextField(labelWithString:".pdf"),button("重新生成",#selector(regenerate))]);nameRow.alignment = .centerY;nameRow.spacing=8
         let flags=NSStackView(views:[bookmarks,metadata,NSView()]);flags.spacing=20;flags.heightAnchor.constraint(equalToConstant:25).isActive=true
-        let bottom=NSStackView(views:[skipBad,NSView(),NSTextField(labelWithString:"缺少纸张信息时使用 DPI"),dpi]);bottom.spacing=10;bottom.heightAnchor.constraint(equalToConstant:27).isActive=true
-        let note=NSTextField(wrappingLabelWithString:"保留原图尺寸；目标已存在时不会覆盖。遇到坏页默认停止，勾选继续后生成标有 .partial 的部分结果。")
+        let bottom=NSStackView(views:[skipBad,NSView(),CenteredTextField(labelWithString:"缺少纸张信息时使用 DPI"),dpi]);bottom.spacing=10;bottom.heightAnchor.constraint(equalToConstant:27).isActive=true
+        let note=CenteredTextField(wrappingLabelWithString:"保留原图尺寸；目标已存在时不会覆盖。遇到坏页默认停止，勾选继续后生成标有 .partial 的部分结果。")
         note.font = .systemFont(ofSize:11);note.textColor = .secondaryLabelColor
         settingsColumn.orientation = .vertical;settingsColumn.alignment = .leading;settingsColumn.spacing=12
-        for view in [title,destination,folderLabel,format,NSTextField(labelWithString:"目标文件名"),nameRow,targetLabel,NSBox.separator(),flags,bottom,note] {settingsColumn.addArrangedSubview(view);view.widthAnchor.constraint(equalTo:settingsColumn.widthAnchor).isActive=true}
+        for view in [title,destination,folderLabel,format,CenteredTextField(labelWithString:"目标文件名"),nameRow,targetLabel,NSBox.separator(),flags,bottom,note] {settingsColumn.addArrangedSubview(view);view.widthAnchor.constraint(equalTo:settingsColumn.widthAnchor).isActive=true}
     }
     var usesVerticalLayout:Bool {true}
     var outputSettingsFrame:NSRect {settingsColumn.convert(settingsColumn.bounds,to:form.column)}
@@ -150,12 +150,12 @@ final class ConversionWindow: NSObject,NSWindowDelegate,NSTableViewDataSource,NS
     }
     func numberOfRows(in tableView:NSTableView)->Int {jobs.count}
     func tableView(_ tableView:NSTableView,viewFor column:NSTableColumn?,row:Int)->NSView? {
-        let job=jobs[row],label=NSTextField(labelWithString:"");label.font = .systemFont(ofSize:12);label.lineBreakMode = .byTruncatingMiddle
+        let job=jobs[row],label=CenteredTextField(labelWithString:"");label.font = .systemFont(ofSize:12);label.lineBreakMode = .byTruncatingMiddle
         if column?.identifier.rawValue == "source" {
-            let title=NSTextField(labelWithString:job.metadata["书名"] ?? job.source.deletingPathExtension().lastPathComponent);title.font = .systemFont(ofSize:13,weight:.medium);title.lineBreakMode = .byTruncatingMiddle
+            let title=CenteredTextField(labelWithString:job.metadata["书名"] ?? job.source.deletingPathExtension().lastPathComponent);title.font = .systemFont(ofSize:13,weight:.medium);title.lineBreakMode = .byTruncatingMiddle
             let info=[job.metadata["丛书名"],job.metadata["出版社"],job.metadata["出版日期"]].compactMap {$0}.filter {!$0.isEmpty}.joined(separator:" · ")
-            let subtitle=NSTextField(labelWithString:info);subtitle.font = .systemFont(ofSize:11);subtitle.textColor = .secondaryLabelColor;subtitle.lineBreakMode = .byTruncatingMiddle
-            let file=NSTextField(labelWithString:job.source.lastPathComponent);file.font = .systemFont(ofSize:10);file.textColor = .tertiaryLabelColor;file.lineBreakMode = .byTruncatingMiddle
+            let subtitle=CenteredTextField(labelWithString:info);subtitle.font = .systemFont(ofSize:11);subtitle.textColor = .secondaryLabelColor;subtitle.lineBreakMode = .byTruncatingMiddle
+            let file=CenteredTextField(labelWithString:job.source.lastPathComponent);file.font = .systemFont(ofSize:10);file.textColor = .tertiaryLabelColor;file.lineBreakMode = .byTruncatingMiddle
             let stack=NSStackView(views:[title,subtitle,file]);stack.orientation = .vertical;stack.alignment = .leading;stack.spacing=3
             for view in [title,subtitle,file] {view.widthAnchor.constraint(equalTo:stack.widthAnchor).isActive=true};stack.toolTip=job.source.path;return stack
         }

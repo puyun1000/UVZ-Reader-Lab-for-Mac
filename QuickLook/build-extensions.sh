@@ -6,6 +6,9 @@ QL_SDK=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
 for QL_KIND in Preview Thumbnail; do
   QL_EXTENSION="$QL_APP/Contents/PlugIns/UVZ$QL_KIND.appex"
   mkdir -p "$QL_EXTENSION/Contents/MacOS"
+  mkdir -p "$QL_EXTENSION/Contents/Helpers"
+  /bin/cp "$QL_ROOT/.build/DjVuTools/ddjvu" "$QL_EXTENSION/Contents/Helpers/ddjvu"
+  /usr/bin/codesign --force --sign - "$QL_EXTENSION/Contents/Helpers/ddjvu"
   /bin/cp "$QL_ROOT/QuickLook/$QL_KIND-Info.plist" "$QL_EXTENSION/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$QL_ROOT/Info.plist")" "$QL_EXTENSION/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$QL_ROOT/Info.plist")" "$QL_EXTENSION/Contents/Info.plist"

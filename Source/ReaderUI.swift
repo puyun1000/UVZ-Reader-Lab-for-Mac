@@ -25,25 +25,25 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private var toolbarHeight: NSLayoutConstraint!
     private let sidebar = NSStackView()
     private var sidebarWidth: NSLayoutConstraint!
-    private let note = NSTextField(wrappingLabelWithString: "")
-    private let status = NSTextField(labelWithString: "打开电子书，开始阅读")
-    private let ocrStatus = NSTextField(labelWithString: "")
-    let pageField = NSTextField(string: "1")
+    private let note = CenteredTextField(wrappingLabelWithString: "")
+    private let status = CenteredTextField(labelWithString: "打开电子书，开始阅读")
+    private let ocrStatus = CenteredTextField(labelWithString: "")
+    let pageField = CenteredTextField(string: "1")
     let pageTypePopup = NSPopUpButton()
     private var physicalNavigation = false
     private var pageMap: PageAddressing?
-    private let countLabel = NSTextField(labelWithString: "/ 0")
+    private let countLabel = CenteredTextField(labelWithString: "/ 0")
     private let modePopup = NSPopUpButton()
     private let coverButton = NSButton(checkboxWithTitle: "首页单独", target: nil, action: nil)
     private let layoutButtons = NSSegmentedControl()
-    private let filenameLabel = NSTextField(labelWithString: "尚未打开书籍")
+    private let filenameLabel = CenteredTextField(labelWithString: "尚未打开书籍")
     private let renameButton = NSButton(title: "书籍信息与重命名…", target: nil, action: nil)
     private(set) var renameSheet: RenameSheet?
     private let rtlButton = NSButton(checkboxWithTitle: "从右至左", target: nil, action: nil)
     private let fitPopup = NSPopUpButton()
     private let colorPopup = NSPopUpButton()
     private let zoomSlider = NSSlider(value: 1, minValue: 0.25, maxValue: 4, target: nil, action: nil)
-    private let zoomLabel = NSTextField(labelWithString: "100%")
+    private let zoomLabel = CenteredTextField(labelWithString: "100%")
     private let defaults = UserDefaults.standard
     private var stateKey = ""
     private(set) var onlineReferences: OnlineReferences?
@@ -229,11 +229,11 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         readingControls = [close,previous,next,pageTypePopup,pageField,modePopup,layoutButtons,coverButton,rtlButton,fitPopup,colorPopup,zoomSlider,whole,width,smaller,larger,options,fitWidthButton,fitHeightButton,fitWholeButton,defaultColorButton]
         let rotate=button("旋转90°",#selector(rotatePage),symbol:"rotate.right"),cropMore=button("增加裁边",#selector(cropMore)),cropLess=button("减小裁边",#selector(cropLess))
         readingControls += [rotate,cropMore,cropLess]
-        let title=NSTextField(labelWithString:"阅读显示");title.font = .systemFont(ofSize:15,weight:.semibold)
+        let title=CenteredTextField(labelWithString:"阅读显示");title.font = .systemFont(ofSize:15,weight:.semibold)
         let box=NSStackView(views:[title,group([zoomSlider,zoomLabelCopy()]),group([rotate,cropMore,cropLess])]);box.orientation = .vertical;box.alignment = .leading;box.spacing=14;box.edgeInsets = .init(top:18,left:18,bottom:18,right:18)
         let host=NSViewController();host.view=box;displayOptions.contentViewController=host;displayOptions.behavior = .transient
     }
-    private func zoomLabelCopy()->NSTextField {let text=NSTextField(labelWithString:"缩放比例");text.font = .systemFont(ofSize:11);text.textColor = .secondaryLabelColor;return text}
+    private func zoomLabelCopy()->NSTextField {let text=CenteredTextField(labelWithString:"缩放比例");text.font = .systemFont(ofSize:11);text.textColor = .secondaryLabelColor;return text}
     @objc private func showDisplayOptions(_ sender:NSButton) {displayOptions.show(relativeTo:sender.bounds,of:sender,preferredEdge:.maxY)}
     @objc private func cropMore() {state.crop=min(0.15,state.crop+0.01);invalidateImages();relayout(preservePosition:true);save()}
     @objc private func cropLess() {state.crop=max(0,state.crop-0.01);invalidateImages();relayout(preservePosition:true);save()}
@@ -242,8 +242,8 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     @objc func convertCurrent() {onConvert?(book.map {[$0.url]} ?? [])}
     private func buildEmptyState() {
         let icon=NSImageView();icon.image=NSImage(systemSymbolName:"books.vertical",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:42,weight:.light));icon.widthAnchor.constraint(equalToConstant:58).isActive=true;icon.contentTintColor = .secondaryLabelColor;icon.imageScaling = .scaleProportionallyUpOrDown;icon.heightAnchor.constraint(equalToConstant:58).isActive=true
-        let title=NSTextField(labelWithString:"阅读与整理你的图书");title.font = .systemFont(ofSize:24,weight:.semibold);title.alignment = .center
-        let subtitle=NSTextField(wrappingLabelWithString:"打开或拖入电子书开始阅读，也可以批量转换为PDF。\n支持UVZ、ZIP、PDG、PDF、DjVu和多页TIFF。")
+        let title=CenteredTextField(labelWithString:"阅读与整理你的图书");title.font = .systemFont(ofSize:24,weight:.semibold);title.alignment = .center
+        let subtitle=CenteredTextField(wrappingLabelWithString:"打开或拖入电子书开始阅读，也可以批量转换为PDF。\n支持UVZ、ZIP、PDG、PDF、DjVu和多页TIFF。")
         subtitle.alignment = .center;subtitle.font = .systemFont(ofSize:13);subtitle.textColor = .secondaryLabelColor
         let open=button("打开图书…",#selector(chooseBook),symbol:"folder"),convert=button("转换工作台…",#selector(convertCurrent),symbol:"doc.badge.arrow.up")
         let actions=group([open,convert]);emptyRecent.orientation = .vertical;emptyRecent.alignment = .centerX;emptyRecent.spacing=8
@@ -254,7 +254,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     @objc private func openRecentEmpty(_ sender:NSButton) {if let path=sender.toolTip {onOpenFiles?([URL(fileURLWithPath:path)])}}
 
     private func buildSidebar() {
-        let title = NSTextField(labelWithString: "目录"); title.font = .systemFont(ofSize: 13, weight: .semibold)
+        let title = CenteredTextField(labelWithString: "目录"); title.font = .systemFont(ofSize: 13, weight: .semibold)
         let options = NSPopUpButton(frame: .zero, pullsDown: true)
         options.addItem(withTitle: "目录选项")
         for (text, action) in [("显示页码作为目录项", #selector(togglePageNumbers)), ("全部展开", #selector(expandContents)), ("全部折叠", #selector(collapseContents))] {
@@ -519,7 +519,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         if empty {
             emptyRecent.arrangedSubviews.forEach {emptyRecent.removeArrangedSubview($0);$0.removeFromSuperview()}
             let recent=NSDocumentController.shared.recentDocumentURLs.filter {FileManager.default.fileExists(atPath:$0.path)}.prefix(3)
-            if !recent.isEmpty {let title=NSTextField(labelWithString:"最近阅读");title.font = .systemFont(ofSize:12,weight:.semibold);title.textColor = .secondaryLabelColor;emptyRecent.addArrangedSubview(title)}
+            if !recent.isEmpty {let title=CenteredTextField(labelWithString:"最近阅读");title.font = .systemFont(ofSize:12,weight:.semibold);title.textColor = .secondaryLabelColor;emptyRecent.addArrangedSubview(title)}
             for url in recent {let b=button(url.deletingPathExtension().lastPathComponent,#selector(openRecentEmpty),symbol:"book.closed");b.toolTip=url.path;b.cell?.lineBreakMode = .byTruncatingMiddle;b.widthAnchor.constraint(lessThanOrEqualToConstant:580).isActive=true;emptyRecent.addArrangedSubview(b)}
         }
 
@@ -696,7 +696,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool { !(item as! NavigationNode).children.isEmpty }
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         let node = item as! NavigationNode
-        let cell = NSTextField(labelWithString: node.title); cell.font = .systemFont(ofSize: 12); cell.lineBreakMode = .byTruncatingTail
+        let cell = CenteredTextField(labelWithString: node.title); cell.font = .systemFont(ofSize: 12); cell.lineBreakMode = .byTruncatingTail
         cell.toolTip = node.page.map { "\(node.title) · 第 \($0 + 1) 页" } ?? node.title
         return cell
     }

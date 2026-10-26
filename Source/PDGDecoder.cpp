@@ -19,7 +19,8 @@ static bool image(const Bytes& b) {
     return (b[0]==255&&b[1]==216&&b[2]==255) ||
         !memcmp(b.data(),"\x89PNG",4)||!memcmp(b.data(),"GIF8",4)||
         !memcmp(b.data(),"II*\0",4)||!memcmp(b.data(),"MM\0*",4)||
-        (b[0]=='B'&&b[1]=='M') || (b.size()>12&&!memcmp(b.data()+4,"jP  ",4));
+        (b[0]=='B'&&b[1]=='M') || (b.size()>12&&!memcmp(b.data()+4,"jP  ",4)) ||
+        !memcmp(b.data(),"AT&T",4) || (b[0]==255&&b[1]==79&&b[2]==255&&b[3]==81);
 }
 static void tea(uint8_t* p,const uint32_t* k) {
     uint32_t v[4];for(int i=0;i<4;i++)v[i]=u32(p+4*i);
@@ -42,6 +43,7 @@ static void legacy(const Bytes& h,Bytes& b,int type) {
     uint32_t k[4];for(int i=0;i<4;i++)k[i]=u32(md+4*i);
     for(size_t i=0;i+16<=b.size();i+=16)tea(b.data()+i,k);
 }
+#include "PDGSeries.h"
 static void variant(const Bytes& h,Bytes& out,int type){
     static const Bytes key215=[] {
         const char* hex="3133326a6b73646961753334756b6a617364666c6b6a2140233233346166646a693738232532333441446620761c3d2d0773646b6a3930383334323c4144463e2f2377253474356f387577726f75796f75686a38393334303338703335307c2b5f53444661647772213233346761734d2c2e737066646c705b574565793364667366677366343839305e3a3921402335362638393338343937383930373839303534696f657275615e337e2132262a285f2b2a283830772675696466733967686964666f7765723233392d383974616572432821376100";
@@ -167,18 +169,29 @@ extern "C" int lab_pdg_decode(const uint8_t* source,size_t size,uint8_t** output
         Bytes all(source,source+size),result;
         if(size<2||source[0]!='H'||source[1]!='H'){require(image(all),"未识别的页面格式。");result=std::move(all);}
         else{
+            if(size>=3&&all[2]==1){
+                require(size>=56,"旧版 PDG 头部被截断。");
+                uint32_t mode=u32(all.data()+7);require(mode==0||mode==4||mode==5,"不支持这种旧版 PDG 预处理类型。");
+                require(all[14]!=0x46,"暂不支持加密旧版文本 PDG。");
+                result.assign(all.begin()+56,all.end());
+                if(mode){size_t skip=mode==4?1:2;require(result.size()>128+skip,"旧版 PDG 图像被截断。");result.erase(result.begin()+128,result.begin()+128+skip);}
+                if(image(result)){size_t n=u32(all.data()+28);require(n>0&&n<=result.size(),"旧版 PDG 图像长度异常。");result.resize(n);}
+                else result=bitonal(result,all[3]|all[4]<<8,all[5]|all[6]<<8);
+            }else{
             require(size>=140,"PDG 头部被截断。");Bytes h(all.begin(),all.begin()+140);
-            require(h[56]==0,"不支持这种 PDG 预处理类型。");int type=h[15];
-            require(type<=5||(type>=0x11&&type<=0x1c),"不支持这种 PDG 编码类型。");
+            require(h[21]==0,"暂不支持分层 PDG 页面。");int type=h[15];
+            require(type<=5||type==0x10||type==0x28||(type>=0x11&&type<=0x1c)||(type>=0xaa&&type<=0xac),"不支持这种 PDG 编码类型。");
             size_t offset=u32(h.data()+24),count=u32(h.data()+28);
             require(offset>=140&&offset<=size&&count>0&&count<=size-offset,"PDG 数据范围异常。");
             result.assign(all.begin()+offset,all.begin()+offset+count);
-            if(type>=0x11)variant(h,result,type);else legacy(h,result,type);
-            require(!(result.size()>=8&&!memcmp(result.data(),"AT&TFORM",8)),"当前版本不支持 DjVu 页面。");
+            PDGSeries::preprocess(h,result);type=h[15];
+            if(type>=0x11&&type<=0x1c)variant(h,result,type);
+            else legacy(h,result,type);
             if(!image(result)){
                 require(h[20]!=24,"PDG 彩色页面内容未识别。");
                 int width=h[16]|h[17]<<8,height=h[18]|h[19]<<8;
                 result=bitonal(result,width,height);
+            }
             }
         }
         *output=(uint8_t*)malloc(result.size());require(*output!=nullptr,"解码内存不足。");

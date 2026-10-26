@@ -139,7 +139,7 @@ final class BookArchive {
         for page in basePages {
             let entry = entries[page.entry]
             let head = try Self.prefix(entry, from: bytes)
-            if head.starts(with: Data("%PDF-".utf8)) || (head.count >= 4 && head[0] == 0x48 && head[1] == 0x48 && head[3] == 0x46) {
+            if head.starts(with: Data("%PDF-".utf8)) || (head.count >= 4 && head[0] == 0x48 && head[1] == 0x48 && head[2] != 1 && head[3] == 0x46) {
                 let decoded = try PageDecoder.decodedData(Self.read(entry, from: bytes))
                 guard let document = PDFDocument(data: decoded), !document.isLocked, document.pageCount > 0 else { throw ReaderFailure("无法读取文本 PDG 的 PDF 页面。") }
                 guard document.pageCount <= 100_000 - pages.count else { throw ReaderFailure("书籍总页数超出限制。") }

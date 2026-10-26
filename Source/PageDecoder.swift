@@ -11,6 +11,8 @@ private func decodeZlib(_ input: UnsafePointer<UInt8>, _ size: Int, _ output: Un
 enum PageDecoder {
     static func decodedData(_ data: Data) throws -> Data {
         guard data.starts(with: [0x48, 0x48]) else { return data }
+        guard data.count >= 3 else { throw ReaderFailure("PDG 头部被截断。") }
+        if data[2] != 1 {
         guard data.count >= 140 else { throw ReaderFailure("PDG 头部被截断。") }
         if data[3] == 0x46 {
             guard data[2] == 2, data[15] == 0, data[56] == 0 else { throw ReaderFailure("暂不支持这种文本 PDG 编码。") }
@@ -37,6 +39,7 @@ enum PageDecoder {
             guard let start = decoded.range(of: Data("%PDF-".utf8))?.lowerBound else { throw ReaderFailure("文本 PDG 中没有有效 PDF。") }
             return decoded.subdata(in: start..<decoded.count)
         }
+        }
         var output: UnsafeMutablePointer<UInt8>?, length = 0
         var message = [CChar](repeating: 0, count: 512)
         let result = data.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
@@ -48,6 +51,12 @@ enum PageDecoder {
     }
 
     static func image(_ data: Data, pdfPage: Int? = nil) throws -> CGImage {
+        if data.starts(with:Data("AT&TFORM".utf8)) {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("uvz-page-"+UUID().uuidString+".djvu")
+            defer { try? FileManager.default.removeItem(at:url) }
+            try data.write(to:url)
+            return try DjVuTools.render(url,page:(pdfPage ?? 0)+1,fullResolution:true)
+        }
         if data.starts(with: Data("%PDF-".utf8)) {
             guard let document = PDFDocument(data: data) else { throw ReaderFailure("PDF 无法读取。") }
             return try image(document, at: pdfPage ?? 0)

@@ -48,3 +48,17 @@ https://wbfan.site/duxiu/
 No website JavaScript, image assets, or IID codebooks are copied or bundled.
 The related IID decoder (CC BY 4.0) is a research reference only:
 https://github.com/wbfan95/Duxiu-iid-v3-Decoder-JS
+
+PDG compatibility extensions in 0.16.0
+
+Source/PDGSeries.h translates the series-A routines from the same pinned
+MIT-licensed 100apps/pdg_decoder source above. Source/PDGSeriesTables.h
+contains numeric interoperability constants read by that upstream algorithm
+from its reference DLL. No Windows executable code or reference application
+assets are included or loaded. Exact file hash, table ranges, reproduction
+script and compatibility limits are documented in Docs/Decoder-0.3.0.md.
+No license to the original Windows applications is asserted.
+
+Both Quick Look extensions now include their own unmodified DjVuLibre ddjvu
+helper. The full GPL source, license and build script remain included in the
+containing app Resources/DjVuLibre and the source distribution.

@@ -58,7 +58,7 @@ final class LooseBook {
                 let key = pageKey(file.lastPathComponent)
                 let handle = try FileHandle(forReadingFrom: file); defer { try? handle.close() }
                 let head = try handle.read(upToCount: 140) ?? Data()
-                if head.starts(with: Data("%PDF-".utf8)) || (head.count > 3 && head[0] == 0x48 && head[1] == 0x48 && head[3] == 0x46) {
+                if head.starts(with: Data("%PDF-".utf8)) || (head.count > 3 && head[0] == 0x48 && head[1] == 0x48 && head[2] != 1 && head[3] == 0x46) {
                     let decoded = try PageDecoder.decodedData(Data(contentsOf: file, options: .mappedIfSafe))
                     guard let document = PDFDocument(data: decoded), !document.isLocked, document.pageCount > 0,
                           document.pageCount <= 100_000 - pages.count else { throw ReaderFailure("文本 PDG 的 PDF 无法读取。") }

@@ -57,6 +57,21 @@ enum NativeDocumentMetadata {
         return values
     }
     static func quote(_ text: String) -> String { String(decoding:try! JSONEncoder().encode(text),as:UTF8.self) }
+    static func savePDF(_ pdf: PDFDocument,attributes: [AnyHashable:Any],from source: URL,to target: URL,expected: [String:String]?) throws {
+        pdf.documentAttributes = attributes
+        let pageCount = pdf.pageCount
+        guard pdf.write(to:target) else { throw ReaderFailure("PDF图书信息写入失败，未替换原文件。") }
+        func valid() -> Bool {
+            guard let check = PDFDocument(url:target),check.pageCount == pageCount else { return false }
+            return expected.map { pdfValues(check) == $0 } ?? true
+        }
+        if valid() { return }
+        // Missing Info dictionaries can make PDFKit silently discard new values.
+        // Append only metadata to the original bytes instead of recompressing pages.
+        try PDFInformationRevision.write(attributes,source:source,target:target)
+        guard valid() else { throw ReaderFailure("PDF图书信息回读校验失败，未替换原文件。") }
+    }
+
     static func write(_ values: [String:String],from source: URL,to target: URL) throws {
         let encoded = try JSONEncoder().encode(values)
         if source.pathExtension.lowercased() == "pdf" {
@@ -65,8 +80,7 @@ enum NativeDocumentMetadata {
             var attributes = pdf.documentAttributes ?? [:]
             for (field,name) in mapping { attributes[PDFDocumentAttribute(rawValue:name)] = values[field] ?? "" }
             attributes[PDFDocumentAttribute(rawValue:key)] = String(decoding:encoded,as:UTF8.self)
-            pdf.documentAttributes = attributes
-            guard pdf.write(to:target),let check = PDFDocument(url:target),check.pageCount == pdf.pageCount,pdfValues(check) == values else { throw ReaderFailure("PDF图书信息回读校验失败，未替换原文件。") }
+            try savePDF(pdf,attributes:attributes,from:source,to:target,expected:values)
         } else {
             var raw = try djvuRaw(source)
             for (field,name) in mapping { raw.removeValue(forKey:name); raw[name.lowercased()] = values[field] ?? "" }
@@ -83,4 +97,143 @@ enum NativeDocumentMetadata {
 
 extension BookArchive {
     var storesNativeInformation: Bool { ["pdf","djvu","djv"].contains(url.pathExtension.lowercased()) }
+}
+
+/// A metadata-only incremental PDF revision. The original byte stream is retained
+/// verbatim, including all page images, catalog objects, annotations and outlines.
+/// Handles both classic xref tables and xref-stream trailers, including /Prev.
+private enum PDFInformationRevision {
+    struct Scanner {
+        let data: Data
+        var at: Int
+        mutating func space() {
+            while at<data.count {
+                if [UInt8(0),9,10,12,13,32].contains(data[at]) { at += 1 }
+                else if data[at] == 37 { while at<data.count && data[at] != 10 && data[at] != 13 { at += 1 } }
+                else { break }
+            }
+        }
+        mutating func token() -> String {
+            space();let start=at
+            while at<data.count && ![UInt8(0),9,10,12,13,32,40,41,60,62,91,93,123,125,47,37].contains(data[at]) { at += 1 }
+            return String(decoding:data[start..<at],as:UTF8.self)
+        }
+        mutating func value(_ depth: Int = 0) throws -> Range<Int> {
+            space();let start=at
+            guard depth<64,at<data.count else { throw ReaderFailure("PDF信息结构不完整。") }
+            let c=data[at];at += 1
+            if c==40 {
+                var nesting=1
+                while at<data.count && nesting>0 {
+                    let b=data[at];at += 1
+                    if b==92 { if at<data.count { at += 1 } }
+                    else if b==40 { nesting += 1 } else if b==41 { nesting -= 1 }
+                }
+                guard nesting==0 else { throw ReaderFailure("PDF信息字符串被截断。") }
+            } else if c==60 {
+                if at<data.count && data[at]==60 {
+                    at += 1
+                    while true {
+                        space()
+                        guard at+1<data.count else { throw ReaderFailure("PDF信息字典被截断。") }
+                        if data[at]==62 && data[at+1]==62 { at += 2;break }
+                        _ = try value(depth+1)
+                    }
+                } else {
+                    while at<data.count && data[at] != 62 { at += 1 }
+                    guard at<data.count else { throw ReaderFailure("PDF十六进制字符串被截断。") };at += 1
+                }
+            } else if c==91 {
+                while true {
+                    space();guard at<data.count else { throw ReaderFailure("PDF信息数组被截断。") }
+                    if data[at]==93 { at += 1;break };_ = try value(depth+1)
+                }
+            } else if c==47 {
+                _ = token()
+            } else {
+                at=start;let first=token()
+                guard !first.isEmpty else { throw ReaderFailure("PDF信息中存在无效标记。") }
+                // Consume an indirect reference as one value, without swallowing
+                // the first number of the next dictionary entry or array item.
+                let end=at
+                if Int(first) != nil {
+                    if Int(token()) != nil && token()=="R" { return start..<at }
+                    at=end
+                }
+            }
+            return start..<at
+        }
+        mutating func dictionary() throws -> [String:Range<Int>] {
+            space();guard at+1<data.count,data[at]==60,data[at+1]==60 else { throw ReaderFailure("PDF交叉引用字典无法读取。") }
+            at += 2;var result:[String:Range<Int>]=[:]
+            while true {
+                space();guard at+1<data.count else { throw ReaderFailure("PDF尾部字典被截断。") }
+                if data[at]==62 && data[at+1]==62 { at += 2;return result }
+                guard data[at]==47 else { throw ReaderFailure("PDF尾部字典键无效。") };at += 1
+                let name=token();guard !name.isEmpty else { throw ReaderFailure("PDF尾部字典键为空。") }
+                result[name]=try value()
+            }
+        }
+    }
+    private static func pdfString(_ text: String) -> String {
+        "<FEFF"+text.utf16.map { String(format:"%04X",UInt32($0)) }.joined()+">"
+    }
+    private static func encoded(_ value: Any) throws -> String {
+        if let text=value as? String { return pdfString(text) }
+        if let date=value as? Date {
+            let formatter=DateFormatter();formatter.locale=Locale(identifier:"en_US_POSIX");formatter.timeZone=TimeZone(secondsFromGMT:0);formatter.dateFormat="'D:'yyyyMMddHHmmss'Z'"
+            return pdfString(formatter.string(from:date))
+        }
+        if let array=value as? [Any] { return "["+(try array.map(encoded)).joined(separator:" ")+"]" }
+        if let number=value as? NSNumber {
+            if CFGetTypeID(number)==CFBooleanGetTypeID() { return number.boolValue ? "true" : "false" }
+            guard number.doubleValue.isFinite else { throw ReaderFailure("PDF原有信息包含无效数值。") };return number.stringValue
+        }
+        throw ReaderFailure("PDF原有信息包含暂不支持的数据类型，未覆盖原文件。")
+    }
+    static func write(_ attributes: [AnyHashable:Any],source: URL,target: URL) throws {
+        let data=try Data(contentsOf:source,options:.mappedIfSafe)
+        guard let marker=data.range(of:Data("startxref".utf8),options:.backwards,in:max(0,data.count-65536)..<data.count) else { throw ReaderFailure("PDF缺少有效交叉引用，未覆盖原文件。") }
+        var end=Scanner(data:data,at:marker.upperBound)
+        guard let last=Int(end.token()),last>=0,last<data.count else { throw ReaderFailure("PDF交叉引用位置无效。") }
+        var at=last,seen=Set<Int>(),size=0,root:String?,identifier:Data?,finished=false
+        for _ in 0..<64 {
+            guard seen.insert(at).inserted,at>=0,at<data.count else { throw ReaderFailure("PDF交叉引用链异常。") }
+            var scanner=Scanner(data:data,at:at)
+            if scanner.token()=="xref" {
+                guard let trailer=data.range(of:Data("trailer".utf8),in:scanner.at..<data.count) else { throw ReaderFailure("PDF缺少尾部字典。") };scanner.at=trailer.upperBound
+            } else {
+                scanner.at=at
+                guard Int(scanner.token()) != nil,Int(scanner.token()) != nil,scanner.token()=="obj" else { throw ReaderFailure("PDF交叉引用流无效。") }
+            }
+            let entries=try scanner.dictionary()
+            func raw(_ key:String) -> String? { entries[key].map {String(decoding:data[$0],as:UTF8.self)} }
+            guard entries["Encrypt"] == nil else { throw ReaderFailure("加密PDF不支持直接改写信息。") }
+            if let value=raw("Size"),let n=Int(value) { size=max(size,n) }
+            if root==nil { root=raw("Root") };if identifier==nil {identifier=entries["ID"].map {Data(data[$0])}}
+            guard let previous=raw("Prev") else { finished=true;break }
+            guard let previous=Int(previous) else { throw ReaderFailure("PDF交叉引用链位置无效。") };at=previous
+        }
+        guard finished,let root,size>0,size<1_000_000_000 else { throw ReaderFailure("PDF缺少可用文档根或对象计数。") }
+        let parts=root.split(whereSeparator:{$0.isWhitespace})
+        guard parts.count==3,let object=Int(parts[0]),object>0,object<size,Int(parts[1]) != nil,parts[2]=="R" else { throw ReaderFailure("PDF文档根引用无效。") }
+        var lines:[String]=[]
+        for (key,value) in attributes {
+            let name=(key.base as? PDFDocumentAttribute)?.rawValue ?? String(describing:key)
+            let escaped=name.utf8.map { byte -> String in
+                if byte>=33 && byte<=126 && !Array("#/%()<>[]{}".utf8).contains(byte) {return String(UnicodeScalar(byte))}
+                return String(format:"#%02X",byte)
+            }.joined()
+            lines.append("/"+escaped+" "+(try encoded(value)))
+        }
+        let info="\n\(size) 0 obj\n<<\n"+lines.sorted().joined(separator:"\n")+"\n>>\nendobj\n"
+        let offset=data.count+1,xref=data.count+info.utf8.count
+        guard offset<10_000_000_000 else { throw ReaderFailure("PDF文件超过本版信息保存限制。") }
+        let trailer="xref\n\(size) 1\n"+String(format:"%010lld 00000 n \n",Int64(offset))+"trailer\n<< /Size \(size+1) /Root \(root) /Info \(size) 0 R /Prev \(last)"
+        var suffix=Data((info+trailer).utf8)
+        if let identifier { suffix.append(Data(" /ID ".utf8));suffix.append(identifier) }
+        suffix.append(Data(" >>\nstartxref\n\(xref)\n%%EOF\n".utf8))
+        let handle=try FileHandle(forWritingTo:target);defer {try? handle.close()}
+        try handle.truncate(atOffset:0);try handle.write(contentsOf:data);try handle.write(contentsOf:suffix);try handle.synchronize()
+    }
 }

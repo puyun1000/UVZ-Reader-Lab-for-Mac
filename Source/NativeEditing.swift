@@ -74,6 +74,31 @@ class ChineseTextView:NSTextView {
     @objc private func undoText() {undoManager?.undo()}
     @objc private func redoText() {undoManager?.redo()}
 }
+/// Single-line values align with their surrounding native controls at any
+/// control height. Wrapping labels and multiline editors keep their own layout.
+final class CenteredTextFieldCell:NSTextFieldCell {
+    override func drawingRect(forBounds rect:NSRect) -> NSRect {
+        var interior=super.drawingRect(forBounds:rect)
+        guard isScrollable || usesSingleLineMode || !wraps else {return interior}
+        let font=self.font ?? .systemFont(ofSize:NSFont.systemFontSize)
+        let height=ceil(font.ascender-font.descender+font.leading)
+        interior.origin.y += max(0,(interior.height-height)/2)
+        interior.size.height=min(interior.height,height)
+        return interior
+    }
+    override func edit(withFrame rect:NSRect,in view:NSView,editor:NSText,delegate:Any?,event:NSEvent?) {
+        super.edit(withFrame:drawingRect(forBounds:rect),in:view,editor:editor,delegate:delegate,event:event)
+    }
+    override func select(withFrame rect:NSRect,in view:NSView,editor:NSText,delegate:Any?,start:Int,length:Int) {
+        super.select(withFrame:drawingRect(forBounds:rect),in:view,editor:editor,delegate:delegate,start:start,length:length)
+    }
+}
+class CenteredTextField:NSTextField {
+    override class var cellClass:AnyClass? {
+        get {CenteredTextFieldCell.self}
+        set {}
+    }
+}
 class ChineseWindow:NSWindow {
     private var chineseEditor:ChineseTextView?
     override func fieldEditor(_ createFlag:Bool,for object:Any?)->NSText? {

@@ -74,17 +74,17 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     let selectionHeader = BatchSelectionHeader(frame:NSRect(x:0,y:0,width:600,height:24))
     private var namingStyles = NamingPreferences.styles()
     private(set) var templateWindow: NamingTemplateWindow?
-    let finalName = NSTextField()
-    let fields = BookMetadata.fields.filter { $0 != "摘要" }.map { _ in NSTextField() }
+    let finalName = CenteredTextField()
+    let fields = BookMetadata.fields.filter { $0 != "摘要" }.map { _ in CenteredTextField() }
     private let fieldKeys = BookMetadata.fields.filter { $0 != "摘要" }
-    private let fieldStates = BookMetadata.fields.filter { $0 != "摘要" }.map { _ in NSTextField(labelWithString:"") }
-    private let folderLabel = NSTextField(labelWithString:"尚未选择文件夹")
-    private let formatHint = NSTextField(wrappingLabelWithString:"")
-    private let note = NSTextField(wrappingLabelWithString:"选择文件夹后逐本分析。候选建议不会自动改名，需勾选并应用。")
+    private let fieldStates = BookMetadata.fields.filter { $0 != "摘要" }.map { _ in CenteredTextField(labelWithString:"") }
+    private let folderLabel = CenteredTextField(labelWithString:"尚未选择文件夹")
+    private let formatHint = CenteredTextField(wrappingLabelWithString:"")
+    private let note = CenteredTextField(wrappingLabelWithString:"选择文件夹后逐本分析。候选建议不会自动改名，需勾选并应用。")
     private let scanButton = NSButton(title:"分析未完成项",target:nil,action:nil)
     private let stopButton = NSButton(title:"停止",target:nil,action:nil)
     private let applyButton = NSButton(title:"改名勾选项",target:nil,action:nil)
-    private let detailNote = NSTextField(wrappingLabelWithString:"")
+    private let detailNote = CenteredTextField(wrappingLabelWithString:"")
     private let queue = OperationQueue()
     private var generation = UUID(), closed = false, stopRequested = false
     private var selectedIndex: Int?
@@ -107,12 +107,12 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         let top = NSStackView(views:[choose,folderLabel,rescan,recursive,useOCR]); top.spacing = 10
         scanButton.target = self; scanButton.action = #selector(analysePending); scanButton.bezelStyle = .rounded
         stopButton.target = self; stopButton.action = #selector(stop); stopButton.bezelStyle = .rounded
-        let tools = NSStackView(views:[scanButton,stopButton,button("检查重名",#selector(checkNames)),NSView(),NSTextField(labelWithString:"命名格式"),uniformStyle,button("管理格式…",#selector(manageTemplates))]); tools.spacing = 8
+        let tools = NSStackView(views:[scanButton,stopButton,button("检查重名",#selector(checkNames)),NSView(),CenteredTextField(labelWithString:"命名格式"),uniformStyle,button("管理格式…",#selector(manageTemplates))]); tools.spacing = 8
         configure(table,columns:[("include","",34),("file","当前文件",170),("name","规范名称",260),("status","核对状态",120)])
         selectionHeader.check.target = self; selectionHeader.check.action = #selector(toggleAll); table.headerView = selectionHeader
         let list = NSScrollView(); list.documentView = table; list.hasVerticalScroller = true; list.hasHorizontalScroller = true; list.borderType = .bezelBorder
         for (key,field) in zip(fieldKeys,fields) { field.identifier = .init(key); field.delegate = self }
-        let grid = NSGridView(views:fieldKeys.indices.map { [NSTextField(labelWithString:fieldKeys[$0]),fields[$0],fieldStates[$0]] }); grid.rowSpacing = 5; grid.columnSpacing = 8; grid.column(at:0).width = 66; grid.column(at:2).width = 90
+        let grid = NSGridView(views:fieldKeys.indices.map { [CenteredTextField(labelWithString:fieldKeys[$0]),fields[$0],fieldStates[$0]] }); grid.rowSpacing = 5; grid.columnSpacing = 8; grid.column(at:0).width = 66; grid.column(at:2).width = 90
         for state in fieldStates { state.font = .systemFont(ofSize:11); state.textColor = .secondaryLabelColor }
         for index in fieldKeys.indices { grid.row(at:index).height = 26 }
         reviewed.target = self; reviewed.action = #selector(reviewChanged)
@@ -121,18 +121,18 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         let evidence = NSScrollView(); evidence.documentView = evidenceTable; evidence.hasVerticalScroller = true; evidence.hasHorizontalScroller = true; evidence.borderType = .bezelBorder; evidence.heightAnchor.constraint(greaterThanOrEqualToConstant:100).isActive = true
         let evidenceTools = NSStackView(views:[button("采用所选来源值",#selector(adoptEvidence)),button("原图与识别原文…",#selector(showSources)),NSView()]); evidenceTools.spacing = 8
         detailNote.font = .systemFont(ofSize:11); detailNote.textColor = .secondaryLabelColor; detailNote.maximumNumberOfLines = 4
-        let detail = NSStackView(views:[NSTextField(labelWithString:"图书信息与来源核对"),grid,reviewed,detailNote,evidence,evidenceTools]); detail.orientation = .vertical; detail.alignment = .leading; detail.spacing = 8
+        let detail = NSStackView(views:[CenteredTextField(labelWithString:"图书信息与来源核对"),grid,reviewed,detailNote,evidence,evidenceTools]); detail.orientation = .vertical; detail.alignment = .leading; detail.spacing = 8
         for view in [grid,reviewed,detailNote,evidence,evidenceTools] { view.widthAnchor.constraint(equalTo:detail.widthAnchor).isActive = true }
         let split = NSSplitView(); split.delegate = self; split.isVertical = true; split.dividerStyle = .thin; split.addArrangedSubview(list); split.addArrangedSubview(detail)
         list.widthAnchor.constraint(greaterThanOrEqualToConstant:450).isActive = true; detail.widthAnchor.constraint(greaterThanOrEqualToConstant:490).isActive = true; split.heightAnchor.constraint(greaterThanOrEqualToConstant:400).isActive = true
         formatHint.font = .systemFont(ofSize:11); formatHint.textColor = .secondaryLabelColor
         finalName.delegate = self; finalName.identifier = .init("final-name"); finalName.placeholderString = "可手工修订最终名称，扩展名自动保留"
-        let nameRow = NSStackView(views:[NSTextField(labelWithString:"最终名称"),finalName]); nameRow.spacing = 8
+        let nameRow = NSStackView(views:[CenteredTextField(labelWithString:"最终名称"),finalName]); nameRow.spacing = 8
         let options = NSStackView(views:[saveMetadata,preserveDates,NSView(),button("导出清单…",#selector(exportCSV))]); options.spacing = 12
         note.font = .systemFont(ofSize:11); note.textColor = .secondaryLabelColor
         applyButton.target = self; applyButton.action = #selector(applySelected); applyButton.bezelStyle = .rounded
         let footer = NSStackView(views:[note,NSView(),button("关闭",#selector(closeWindow)),applyButton]); footer.spacing = 10
-        let recognitionOptions = NSStackView(views:[NSTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,NSView()]); recognitionOptions.spacing = 8
+        let recognitionOptions = NSStackView(views:[CenteredTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,NSView()]); recognitionOptions.spacing = 8
         let root = NSStackView(views:[top,tools,recognitionOptions,split,formatHint,nameRow,options,footer]); root.orientation = .vertical; root.alignment = .leading; root.spacing = 10
         let host = NSView(); window.contentView = host; root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo:host.leadingAnchor,constant:16),root.trailingAnchor.constraint(equalTo:host.trailingAnchor,constant:-16),root.topAnchor.constraint(equalTo:host.topAnchor,constant:16),root.bottomAnchor.constraint(equalTo:host.bottomAnchor,constant:-16)])
@@ -221,7 +221,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     }
     func numberOfRows(in tableView: NSTableView) -> Int { tableView === table ? items.count : currentEvidence.count }
     func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
-        let field = NSTextField(labelWithString:""); field.font = .systemFont(ofSize:12); field.lineBreakMode = .byTruncatingMiddle
+        let field = CenteredTextField(labelWithString:""); field.font = .systemFont(ofSize:12); field.lineBreakMode = .byTruncatingMiddle
         if tableView === evidenceTable {
             let e = currentEvidence[row]
             switch column?.identifier.rawValue { case "field": field.stringValue = e.field; case "value": field.stringValue = e.value; case "source": field.stringValue = e.source+(e.inferred ? "（推测）" : ""); default: field.stringValue = e.page.map(String.init) ?? "" }

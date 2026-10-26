@@ -1,4 +1,4 @@
-# UVZ Reader Lab 0.15.1
+# UVZ Reader Lab 0.16.0
 
 独立实现的原生macOS扫描图书阅读与整理应用。支持UVZ／ZIP、PDG及PDG文件夹、PDF、DjVu和多页TIFF。适用于Apple芯片Mac、macOS14及以上；当前使用临时签名，未经Apple公证。
 
@@ -16,6 +16,8 @@
 安装到“应用程序”后打开一次，以注册Quick Look扩展。选中UVZ按空格预览，可查看后续页；更新后需要关闭旧预览窗口再打开。如系统未启用，在“系统设置 → 通用 → 登录项与扩展 → 快速查看”中选择本应用。
 
 图书信息与命名在阅读窗口或“文件”菜单中，批量规范命名使用⇧⌘B，转换工作台使用⇧⌘K。识别和名称建议只更改草稿，保存／应用后才写文件；批量默认只改名。功能说明与更新说明统一在“帮助”中。
+
+0.16.0修复无信息字典PDF保存及改名失败，补充旧版PDG、预处理编码、内嵌DjVu与JPEG2000页面支持。机制、来源和边界见[解码扩展说明](Docs/Decoder-0.3.0.md)。
 
 完整使用说明见[UserGuide](Resources/UserGuide.md)，更新记录见[ReleaseNotes](Resources/ReleaseNotes.md)，书目提取结构与限制见[解析说明](Docs/BibliographicExtraction.md)，转换路径与限制见[转换说明](Docs/Conversion.md)，在线服务机制与验证见[研究记录](Docs/OnlineReferences.md)。
 

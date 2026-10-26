@@ -161,9 +161,8 @@ enum ConversionService {
         }
         // A mutable-page write drops custom Info keys. Reopen before assigning attributes,
         // so the second write preserves both the serialized outline and the complete metadata.
-        pdf.documentAttributes=attributes
         let staged = url.deletingLastPathComponent().appendingPathComponent(".uvz-native-"+UUID().uuidString+".pdf");defer {try? FileManager.default.removeItem(at:staged)}
-        guard pdf.write(to:staged) else {throw ReaderFailure("PDF信息与书签写入失败。")}
+        try NativeDocumentMetadata.savePDF(pdf,attributes:attributes,from:chapters == nil ? url : outlined,to:staged,expected:metadata)
         if let chapters,let check=PDFDocument(url:staged) {
             var actual:[(String,Int?)]=[]
             func visit(_ parent:PDFOutline) {for i in 0..<parent.numberOfChildren {if let node=parent.child(at:i) {actual.append((node.label ?? "",node.destination?.page.map {check.index(for:$0)}));visit(node)}}}

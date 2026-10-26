@@ -78,8 +78,19 @@ final class ConversionUITest {
                 reader.fitWidthButton.performClick(nil);try check(reader.state.fit == 0,"适合宽度可以直接点击")
                 reader.invertedColor();reader.defaultColorButton.performClick(nil);try check(AppSettings().pageColor == 2,"当前配色可设为默认并记住")
                 reader.originalColor();try capture(reader.window,"reader")
-                let field=NSTextField(string:"繁體 ABC");reader.window.contentView?.addSubview(field)
+                let field=CenteredTextField(string:"繁體 ABC");reader.window.contentView?.addSubview(field)
                 try check(reader.window.fieldEditor(true,for:field) is ChineseTextView,"图书信息及命名输入框使用中文文字菜单")
+                field.frame=NSRect(x:20,y:20,width:300,height:40);field.font = .systemFont(ofSize:13)
+                let cell=field.cell as! CenteredTextFieldCell
+                let rect=cell.drawingRect(forBounds:field.bounds)
+                try check(abs(rect.midY-field.bounds.midY)<2,"单行栏框文字上下居中")
+                reader.window.makeFirstResponder(field);field.selectText(nil)
+                let editor=reader.window.fieldEditor(true,for:field) as! NSTextView
+                let editorRect=editor.convert(editor.bounds,to:field)
+                try check(abs(editorRect.midY-field.bounds.midY)<4,"输入和选择文字时仍上下居中")
+                reader.window.makeFirstResponder(nil)
+                let wrap=CenteredTextField(wrappingLabelWithString:"分行说明\n第二行");wrap.frame=NSRect(x:0,y:0,width:300,height:80)
+                try check(wrap.cell?.wraps == true && wrap.cell?.isScrollable == false,"多行说明保留换行布局")
                 field.removeFromSuperview()
                 let text=ChineseTextView(frame:NSRect(x:0,y:0,width:400,height:150));text.isEditable=true;text.allowsUndo=true;reader.window.contentView?.addSubview(text)
                 text.string="😀 繁體ABC 後段";text.setSelectedRange(NSRange(location:3,length:5));let action=NSMenuItem();action.tag=0;text.convertSelection(action)
@@ -92,7 +103,7 @@ final class ConversionUITest {
                 text.removeFromSuperview()
                 try check(reader.pageContextMenu().item(withTitle:"框选识别目录…") != nil && reader.pageContextMenu().item(withTitle:"复制页面图像") != nil,"页面右键提供常用阅读及编辑操作")
                 restorePreferences()
-                let data=try JSONSerialization.data(withJSONObject:["passed":true,"checks":checks,"version":"0.15.1"],options:[.prettyPrinted,.sortedKeys]);try data.write(to:output.deletingPathExtension().appendingPathExtension("json"));print("CONVERSION_UI_OK");exit(0)
+                let data=try JSONSerialization.data(withJSONObject:["passed":true,"checks":checks,"version":"0.16.0"],options:[.prettyPrinted,.sortedKeys]);try data.write(to:output.deletingPathExtension().appendingPathExtension("json"));print("CONVERSION_UI_OK");exit(0)
             }
             tick()
         } catch {restorePreferences();fputs("CONVERSION_UI_FAILED \(error.localizedDescription) stage=\(stage)\n",stderr);exit(1)}

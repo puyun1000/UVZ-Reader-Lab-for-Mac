@@ -66,7 +66,7 @@ final class OCRTextReview: NSObject, NSWindowDelegate {
         let scroll = ocrTextScroll(text, editable: false); text.string = value
         let smaller = NSButton(title: "减小字号",target: self,action: #selector(smallerText)); smaller.bezelStyle = .rounded
         let larger = NSButton(title: "增大字号",target: self,action: #selector(largerText)); larger.bezelStyle = .rounded
-        let tools = NSStackView(views: [NSTextField(labelWithString: "选择文字后可复制或转换；窗口可自由放大。"),TextConversion.button(for:text),NSView(),smaller,larger]); tools.spacing = 8
+        let tools = NSStackView(views: [CenteredTextField(labelWithString: "选择文字后可复制或转换；窗口可自由放大。"),TextConversion.button(for:text),NSView(),smaller,larger]); tools.spacing = 8
         let root = NSStackView(views: [tools,scroll]); root.orientation = .vertical; root.alignment = .leading; root.spacing = 10
         let host = NSView(); window.contentView = host; root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: host.leadingAnchor,constant: 16),root.trailingAnchor.constraint(equalTo: host.trailingAnchor,constant: -16),root.topAnchor.constraint(equalTo: host.topAnchor,constant: 16),root.bottomAnchor.constraint(equalTo: host.bottomAnchor,constant: -16),scroll.widthAnchor.constraint(equalTo: root.widthAnchor),tools.widthAnchor.constraint(equalTo: root.widthAnchor)])
@@ -127,14 +127,14 @@ final class RegionOCRController: NSObject, NSWindowDelegate, NSSplitViewDelegate
     let window = ChineseWindow(contentRect: NSRect(x: 0,y: 0,width: 1120,height: 770),styleMask: [.titled,.closable,.resizable],backing: .buffered,defer: false)
     let canvas = RegionCanvas(frame: .zero)
     let resultText = ChineseTextView()
-    let pageField = NSTextField()
+    let pageField = CenteredTextField()
     let splitOnImport = NSButton(checkboxWithTitle: "添加时分离末尾页码",target: nil,action: nil)
     let append = NSButton(checkboxWithTitle: "连续框选时追加结果",target: nil,action: nil)
     let split = NSSplitView()
     let imageScroll = NSScrollView()
     let placement = NSPopUpButton()
     private let zoom = NSSlider(value: 1,minValue: 1,maxValue: 4,target: nil,action: nil)
-    private let status = NSTextField(wrappingLabelWithString: "在左侧页面拖出矩形，松开鼠标后识别。多栏目录请按列框选。")
+    private let status = CenteredTextField(wrappingLabelWithString: "在左侧页面拖出矩形，松开鼠标后识别。多栏目录请按列框选。")
     private let importButton = NSButton(title: "添加到目录",target: nil,action: nil)
     private let book: BookArchive
     private var page: Int
@@ -155,14 +155,14 @@ final class RegionOCRController: NSObject, NSWindowDelegate, NSSplitViewDelegate
         let previous = button("上一页",#selector(previousPage)), next = button("下一页",#selector(nextPage))
         pageField.integerValue = self.page+1; pageField.widthAnchor.constraint(equalToConstant: 52).isActive = true; pageField.target = self; pageField.action = #selector(pageEntered)
         zoom.widthAnchor.constraint(equalToConstant: 100).isActive = true; zoom.target = self; zoom.action = #selector(zoomChanged); zoom.isContinuous = true
-        let tools = NSStackView(views: [previous,pageField,NSTextField(labelWithString: "/ \(book.pages.count)"),next,NSView(),NSTextField(labelWithString: "放大"),zoom,button("适合窗口",#selector(fitImage)),button("旋转",#selector(rotateImage))]); tools.spacing = 8
+        let tools = NSStackView(views: [previous,pageField,CenteredTextField(labelWithString: "/ \(book.pages.count)"),next,NSView(),CenteredTextField(labelWithString: "放大"),zoom,button("适合窗口",#selector(fitImage)),button("旋转",#selector(rotateImage))]); tools.spacing = 8
         imageScroll.documentView = canvas; imageScroll.hasVerticalScroller = true; imageScroll.hasHorizontalScroller = true; imageScroll.autohidesScrollers = true
         selectionOutline.canvas = canvas; canvas.addSubview(selectionOutline); selectionOutline.autoresizingMask = [.width,.height]
         canvas.onSelected = { [weak self] in self?.recognizeSelection() }
         let textScroll = ocrTextScroll(resultText,editable: true,font: .monospacedSystemFont(ofSize: 14,weight: .regular))
         append.state = .on; splitOnImport.state = .on
         let resultTools = NSStackView(views: [append,TextConversion.button(for:resultText),NSView(),button("分离末尾页码",#selector(splitNumbers)),button("清空",#selector(clearResult))]); resultTools.spacing = 6
-        let right = NSStackView(views: [NSTextField(labelWithString: "识别结果（可编辑）"),textScroll,resultTools]); right.orientation = .vertical; right.alignment = .leading; right.spacing = 8
+        let right = NSStackView(views: [CenteredTextField(labelWithString: "识别结果（可编辑）"),textScroll,resultTools]); right.orientation = .vertical; right.alignment = .leading; right.spacing = 8
         for view in [textScroll,resultTools] { view.widthAnchor.constraint(equalTo: right.widthAnchor).isActive = true }
         split.isVertical = true; split.dividerStyle = .thin; split.delegate = self; split.addArrangedSubview(imageScroll); split.addArrangedSubview(right)
         split.setHoldingPriority(.defaultLow,forSubviewAt: 0); split.setHoldingPriority(.defaultHigh,forSubviewAt: 1)
@@ -170,9 +170,9 @@ final class RegionOCRController: NSObject, NSWindowDelegate, NSSplitViewDelegate
         placement.addItems(withTitles: allowCursor ? ["插入目录光标处","追加到目录末尾"] : ["追加到目录末尾"]); placement.tag = allowCursor ? 1 : 0
         importButton.target = self; importButton.action = #selector(importResult); importButton.bezelStyle = .rounded; importButton.isEnabled = true
         let close = button("取消",#selector(close)); close.keyEquivalent = "\u{1b}"
-        let options = NSStackView(views: [splitOnImport,NSTextField(labelWithString: "选中结果中的部分文字时，仅添加选中内容；添加前可直接修改结果。")]); options.spacing = 12
+        let options = NSStackView(views: [splitOnImport,CenteredTextField(labelWithString: "选中结果中的部分文字时，仅添加选中内容；添加前可直接修改结果。")]); options.spacing = 12
         let footer = NSStackView(views: [button("识别所选区域",#selector(recognizeSelection)),NSView(),placement,close,importButton]); footer.spacing = 8
-        let recognitionOptions = NSStackView(views:[NSTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,NSView()]); recognitionOptions.spacing = 8
+        let recognitionOptions = NSStackView(views:[CenteredTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,NSView()]); recognitionOptions.spacing = 8
         let root = NSStackView(views: [tools,recognitionOptions,split,options,status,footer]); root.orientation = .vertical; root.alignment = .leading; root.spacing = 12
         let host = NSView(); window.contentView = host; root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: host.leadingAnchor,constant: 16),root.trailingAnchor.constraint(equalTo: host.trailingAnchor,constant: -16),root.topAnchor.constraint(equalTo: host.topAnchor,constant: 16),root.bottomAnchor.constraint(equalTo: host.bottomAnchor,constant: -16)])

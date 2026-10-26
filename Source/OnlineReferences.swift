@@ -44,7 +44,7 @@ enum OnlineReferenceClient {
 /// Queries occur only on a button press. Results remain reference material until explicitly imported/saved.
 final class OnlineReferences: NSObject,NSWindowDelegate {
     let window=ChineseWindow(contentRect:NSRect(x:0,y:0,width:820,height:620),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
-    let ssid=NSTextField(),text=ChineseTextView(),image=NSImageView(),status=NSTextField(wrappingLabelWithString:""),quota=NSTextField(labelWithString:"")
+    let ssid=CenteredTextField(),text=ChineseTextView(),image=NSImageView(),status=CenteredTextField(wrappingLabelWithString:""),quota=CenteredTextField(labelWithString:"")
     let bookmarkButton=NSButton(title:"查询目录",target:nil,action:nil),coverButton=NSButton(title:"查询封面",target:nil,action:nil),adopt=NSButton(title:"追加到目录草稿",target:nil,action:nil)
     private var task:Task<Void,Never>?,coverData:Data?,coverSSID:String?,directorySSID:String?,closed=false
     private let referenceSplit=NSSplitView()
@@ -54,15 +54,15 @@ final class OnlineReferences: NSObject,NSWindowDelegate {
         sourceSSID=initial;super.init();ssid.stringValue=initial;ssid.placeholderString="8位SS号";ssid.widthAnchor.constraint(equalToConstant:140).isActive=true
         window.title="在线目录与封面";window.identifier = .init("UVZDocumentDialog");window.minSize=NSSize(width:680,height:480);window.isReleasedWhenClosed=false;window.delegate=self
         for (button,action) in [(bookmarkButton,#selector(fetchDirectory)),(coverButton,#selector(fetchCover)),(adopt,#selector(adoptDirectory))] {button.target=self;button.action=action;button.bezelStyle = .rounded}
-        let controls=NSStackView(views:[NSTextField(labelWithString:"SS号"),ssid,bookmarkButton,coverButton,NSView(),button("打开来源网站",#selector(openWebsite))]);controls.spacing=8;controls.heightAnchor.constraint(equalToConstant:28).isActive=true
-        let explanation=NSTextField(wrappingLabelWithString:"来源：Wenbin Fan 的读秀工具。仅在点击查询时发送SS号，不上传图书。第三方服务有每日IP配额，可能没有对应目录；封面通常是小图，只作参考，不自动替换原书页面。")
+        let controls=NSStackView(views:[CenteredTextField(labelWithString:"SS号"),ssid,bookmarkButton,coverButton,NSView(),button("打开来源网站",#selector(openWebsite))]);controls.spacing=8;controls.heightAnchor.constraint(equalToConstant:28).isActive=true
+        let explanation=CenteredTextField(wrappingLabelWithString:"来源：Wenbin Fan 的读秀工具。仅在点击查询时发送SS号，不上传图书。第三方服务有每日IP配额，可能没有对应目录；封面通常是小图，只作参考，不自动替换原书页面。")
         explanation.font = .systemFont(ofSize:12);explanation.textColor = .secondaryLabelColor
         let split=referenceSplit;split.isVertical=true;split.dividerStyle = .thin;split.heightAnchor.constraint(greaterThanOrEqualToConstant:160).isActive=true;split.setContentHuggingPriority(.init(1),for:.vertical)
         let scroll=ocrTextScroll(text,editable:true,font:.monospacedSystemFont(ofSize:13,weight:.regular));scroll.borderType = .bezelBorder;split.addArrangedSubview(scroll)
         image.imageScaling = .scaleProportionallyUpOrDown;image.setAccessibilityLabel("查询返回的封面参考图");split.addArrangedSubview(image)
         status.font = .systemFont(ofSize:12);quota.font = .systemFont(ofSize:11);quota.textColor = .secondaryLabelColor
         let bottom=NSStackView(views:[adopt,button("复制目录",#selector(copyDirectory)),NSView(),button("另存封面…",#selector(saveCover)),button("关闭",#selector(close))]);bottom.spacing=8;bottom.heightAnchor.constraint(equalToConstant:28).isActive=true
-        let credit=NSTextField(labelWithAttributedString:NSAttributedString(string:"wbfan.site/duxiu",attributes:[.link:URL(string:"https://wbfan.site/duxiu/")!]));credit.allowsEditingTextAttributes=true;credit.isSelectable=true;credit.font = .systemFont(ofSize:11)
+        let credit=CenteredTextField(labelWithAttributedString:NSAttributedString(string:"wbfan.site/duxiu",attributes:[.link:URL(string:"https://wbfan.site/duxiu/")!]));credit.allowsEditingTextAttributes=true;credit.isSelectable=true;credit.font = .systemFont(ofSize:11)
         let root=NSStackView(views:[controls,explanation,split,status,quota,credit,bottom]);root.orientation = .vertical;root.distribution = .fill;root.alignment = .leading;root.spacing=12;root.translatesAutoresizingMaskIntoConstraints=false;let host=NSView();window.contentView=host;host.addSubview(root)
         for v in [controls,explanation,split,status,quota,bottom] {v.widthAnchor.constraint(equalTo:root.widthAnchor).isActive=true;if v !== split {v.setContentHuggingPriority(.required,for:.vertical)}}
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo:host.leadingAnchor,constant:20),root.trailingAnchor.constraint(equalTo:host.trailingAnchor,constant:-20),root.topAnchor.constraint(equalTo:host.topAnchor,constant:16),root.bottomAnchor.constraint(equalTo:host.bottomAnchor,constant:-16)])
