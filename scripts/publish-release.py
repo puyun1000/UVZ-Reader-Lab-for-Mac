@@ -22,11 +22,14 @@ checksums={}
 for asset in a.assets:
  assert asset.is_file(),asset
  checksums[asset.name]=hashlib.sha256(asset.read_bytes()).hexdigest()
-route='repos/'+repo+'/releases/tags/'+tag
-probe=subprocess.run([gh,'api',route],capture_output=True,text=True)
-if probe.returncode:
- assert '404' in probe.stderr,'Unable to determine release state'
+releases='repos/'+repo+'/releases'
+matching=[x for x in api(releases+'?per_page=100') if x['tag_name']==tag]
+assert len(matching)<=1,'Duplicate release tags'
+if not matching:
  subprocess.run([gh,'release','create',tag,'--repo',repo,'--verify-tag','--target',head,'--draft','--title','UVZ Reader Lab '+a.version,'--notes-file',str(a.notes.resolve())],check=True)
+matching=[x for x in api(releases+'?per_page=100') if x['tag_name']==tag]
+assert len(matching)==1,'Unable to locate release draft'
+route=releases+'/'+str(matching[0]['id'])
 release=api(route);token=subprocess.check_output([gh,'auth','token'],text=True).strip()
 for asset in a.assets:
  existing=next((x for x in release['assets'] if x['name']==asset.name),None)
@@ -34,15 +37,15 @@ for asset in a.assets:
   assert release['draft'],'Refusing to append to a published release'
   print('Uploading '+asset.name,flush=True)
   upload='https://uploads.github.com/repos/'+repo+'/releases/'+str(release['id'])+'/assets?name='+quote(asset.name,safe='')
-  config='\n'.join(key+' = '+json.dumps(value) for key,value in [('url',upload),('header','Authorization: Bearer '+token),('header','Content-Type: application/octet-stream'),('header','Expect:'),('upload-file',str(asset.resolve())),('request','POST')])+'\n'
-  result=subprocess.run(['curl','--config','-','--http1.1','--silent','--show-error','--fail-with-body','--connect-timeout','30','--max-time','1200','--limit-rate','256k'],input=config,capture_output=True,text=True,timeout=1230)
+  config='\n'.join(key+' = '+json.dumps(value,ensure_ascii=False) for key,value in [('url',upload),('header','Authorization: Bearer '+token),('header','Content-Type: application/octet-stream'),('header','Expect:'),('upload-file',str(asset.resolve())),('request','POST')])+'\n'
+  result=subprocess.run(['curl','--disable','--config','-','--http1.1','--silent','--show-error','--fail-with-body','--connect-timeout','30','--max-time','1200','--limit-rate','256k'],input=config,capture_output=True,text=True,timeout=1230)
   if result.returncode:raise RuntimeError('Upload incomplete; inspect the draft before retrying: '+asset.name+'; '+result.stderr)
   existing=json.loads(result.stdout)
  assert existing['size']==asset.stat().st_size,asset.name+' size differs'
  assert existing.get('digest')=='sha256:'+checksums[asset.name],asset.name+' digest differs'
  release=api(route)
 del token
-if release['draft']:subprocess.run([gh,'release','edit',tag,'--repo',repo,'--draft=false','--latest'],check=True)
+if release['draft']:subprocess.run([gh,'api','--method','PATCH',route,'-F','draft=false','-f','make_latest=true'],check=True,stdout=subprocess.DEVNULL)
 release=api(route);assert not release['draft'] and release['tag_name']==tag
 assert api('repos/'+repo+'/releases/latest')['tag_name']==tag
 verified=[]

@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='uvz-native-contents-') as td:
   if ext=='pdf':
    c=canvas.Canvas(str(path),pagesize=(300,450));c.setTitle('Original title');c.setAuthor('Original author')
    for i in range(4):c.drawString(20,400,f'Text {i+1}');c.linkURL('https://example.com',(20,20,80,60));c.showPage()
-   c.save();text=[p.extract_text() for p in PdfReader(path).pages]
+   c.save();source_pdf=PdfReader(path);text=[p.extract_text() for p in source_pdf.pages];original_info=source_pdf.metadata
   else:
    with tarfile.open(r/'ThirdParty/DjVuLibre/djvulibre-3.5.30.tar.gz') as t:path.write_bytes(t.extractfile('djvulibre-3.5.30/doc/djvulibre-book-en.djvu').read())
   os.utime(path,(1500000000,1500000000));birth=path.stat().st_birthtime
@@ -31,6 +31,8 @@ with tempfile.TemporaryDirectory(prefix='uvz-native-contents-') as td:
   if ext=='pdf':
    pdf=PdfReader(path);assert len(pdf.outline)==3 and pdf.get_destination_page_number(pdf.outline[1][1])==2
    assert path.read_bytes().startswith(original_bytes)
+   for key in ['/Trapped','/CreationDate','/ModDate','/Creator','/Producer']:
+    assert type(pdf.metadata[key]) is type(original_info[key]) and pdf.metadata[key]==original_info[key],key
    assert [p.extract_text() for p in pdf.pages]==text and all(len(p['/Annots'])==1 for p in pdf.pages)
   else:
    outline=subprocess.check_output([str(r/'UVZ Reader Lab.app/Contents/Helpers/djvused'),'-u','-e','print-outline',str(path)]).decode();assert '"#3"' in outline and '无页码父项' in outline

@@ -21,6 +21,14 @@ enum NativePDFOutline {
         return Ref(number:n,generation:g)
     }
     static func dict(_ data:Data)throws->[String:Data] {var s=Scanner(data:data,at:0);return try s.dictionary().mapValues {Data(data[$0])}}
+    static func decodedName(_ raw:String)->String {
+        let bytes=Array(raw.utf8);var out:[UInt8]=[],i=0
+        while i<bytes.count {
+            if bytes[i]==35,i+2<bytes.count,let value=UInt8(String(decoding:bytes[i+1...i+2],as:UTF8.self),radix:16) {out.append(value);i += 3}
+            else {out.append(bytes[i]);i += 1}
+        }
+        return String(decoding:out,as:UTF8.self)
+    }
     static func vector(_ data:Data)throws->[Int] {
         var s=Scanner(data:data,at:0);s.space();guard s.at<data.count,data[s.at]==91 else {throw failure("索引数组无效")};s.at += 1
         var result:[Int]=[]
@@ -224,13 +232,22 @@ enum NativePDFOutline {
             let offset=pdf.data.count+revision.count;guard offset<10_000_000_000 else {throw failure("文件过大")}
             locations.append((number,generation,offset));revision.append(Data("\(number) \(generation) obj\n".utf8));revision.append(value);revision.append(Data("\nendobj\n".utf8))
         }
-        var infoLines:[String]=[]
+        // Keep unedited Info values as PDF objects (names, dates, references,
+        // arrays, etc.). PDFKit exposes names such as Trapped as plain strings.
+        let managed=Set(NativeDocumentMetadata.mapping.values).union([NativeDocumentMetadata.key])
+        var infoFields:[String:Data]=[:]
+        if let old=pdf.trailer["Info"],old != Data("null".utf8) {
+            infoFields=try dict(old.starts(with:Data("<<".utf8)) ? old:pdf.object(ref(old)).value)
+        }
+        infoFields=infoFields.filter {!managed.contains(decodedName($0.key))}
         for (key,value) in attributes {
             let name=(key.base as? PDFDocumentAttribute)?.rawValue ?? String(describing:key)
-            let escaped=name.utf8.map {b in b>=33 && b<=126 && !Array("#/%()<>[]{}".utf8).contains(b) ? String(UnicodeScalar(b)):String(format:"#%02X",b)}.joined()
-            infoLines.append("/"+escaped+" "+(try PDFInformationRevision.encoded(value)))
+            if managed.contains(name) {infoFields[name]=Data(try PDFInformationRevision.encoded(value).utf8)}
         }
-        try append(info,0,Data(("<<\n"+infoLines.sorted().joined(separator:"\n")+"\n>>").utf8))
+        var infoData=Data("<<\n".utf8)
+        for key in infoFields.keys.sorted() {infoData.append(Data(("/"+key+" ").utf8));infoData.append(infoFields[key]!);infoData.append(10)}
+        infoData.append(Data(">>".utf8));try append(info,0,infoData)
+        catalog=catalog.filter {decodedName($0.key) != "Outlines"}
         catalog["Outlines"]=Data("\(outlines) 0 R".utf8)
         var rootData=Data("<<\n".utf8)
         for key in catalog.keys.sorted() {rootData.append(Data(("/"+key+" ").utf8));rootData.append(catalog[key]!);rootData.append(10)}
