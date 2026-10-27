@@ -78,3 +78,7 @@ Apple 参考：https://developer.apple.com/documentation/quicklookui/qlpreviewpr
 转换工作台参考用户指定PDG2PDF for Mac的多任务组织，以本项目原有解析器、原生AppKit及独立PDF写入代码实现。阅读器按常用导航、页面布局与缩放、低频显示选项分层。未复制原应用的代码、图标或布局资源。
 
 Wenbin Fan读秀工具（https://wbfan.site/duxiu/）的公开前端提供按SS号查询目录和封面的服务器接口。采用独立HTTP客户端，显式查询、注明来源及配额；不自动下载或替换原书内容。服务器取数过程不公开，本项目未声称复现后端。相关IID解码项目为CC BY4.0（https://github.com/wbfan95/Duxiu-iid-v3-Decoder-JS），本版没有复制或内置其码本或代码。
+
+## 0.17.0 文档内目录
+
+PDF、DjVu目录改为原生书签回写，取代此前仅在本应用中生效的目录旁存。PDF采用独立追加修订实现，保留原有文件字节；目录树、页面引用、交叉引用表、压缩对象及交叉引用流按[ISO 32000-1公开规范](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf)第7.5.5、7.5.7、7.5.8及12.3.3节实现。读取修订链后，为系统组件兼容性合并交叉引用流，避免混合链回读问题。DjVu使用随包DjVuLibre的原生目录命令。先核验书目、页数和完整目录，再提交临时文件；旧版DAT成功迁入后才清理，其他用户文件保留。

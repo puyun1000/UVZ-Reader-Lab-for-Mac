@@ -77,9 +77,9 @@ final class LooseBook {
                     for i in 0..<node.numberOfChildren {
                         guard let child = node.child(at: i) else { continue }
                         let destination = child.destination ?? (child.action as? PDFActionGoTo)?.destination
-                        if let page = destination?.page, let label = child.label, !label.isEmpty {
-                            let index = document.index(for: page)
-                            if index < count { nativeChapters.append(BookChapter(title: label, pageIndex: index, level: level, path: nil)) }
+                        if let label=child.label,!label.isEmpty {
+                            let index=destination?.page.map {document.index(for:$0)} ?? -1
+                            if index == -1 || (0..<count).contains(index) { nativeChapters.append(BookChapter(title:label,pageIndex:index,level:level,path:nil)) }
                         }
                         visit(child, level: level + 1)
                     }
@@ -202,8 +202,9 @@ enum DjVuTools {
                     } else { value.append(x) }
                 }
                 strings[depth, default: []].append(value)
-                if let values = strings[depth], values.count == 2, values[1].hasPrefix("#"), let page = Int(values[1].dropFirst()), (1...count).contains(page) {
-                    result.append(BookChapter(title: values[0], pageIndex: page - 1, level: min(63, max(0, depth - 2)), path: nil))
+                if let values = strings[depth], values.count == 2 {
+                    let page=values[1].isEmpty ? 0 : (values[1].hasPrefix("#") ? Int(values[1].dropFirst()) : nil)
+                    if let page,(0...count).contains(page) {result.append(BookChapter(title:values[0],pageIndex:page-1,level:min(63,max(0,depth-2)),path:nil))}
                 }
             }
         }

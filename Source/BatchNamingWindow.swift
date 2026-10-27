@@ -67,7 +67,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     let table = NSTableView(), evidenceTable = NSTableView()
     let recursive = NSButton(checkboxWithTitle:"包含子文件夹",target:nil,action:nil)
     let useOCR = NSButton(checkboxWithTitle:"识别图像并交叉核对",target:nil,action:nil)
-    let saveMetadata = NSButton(checkboxWithTitle:"同时保存核对后的图书信息",target:nil,action:nil)
+    let metadataHint = CenteredTextField(labelWithString:"改名时同步保存全部核对后的图书信息")
     let preserveDates = NSButton(checkboxWithTitle:"保持文件日期",target:nil,action:nil)
     let reviewed = NSButton(checkboxWithTitle:"已人工核对本书的冲突、推测及缺失项",target:nil,action:nil)
     let uniformStyle = NSPopUpButton()
@@ -83,7 +83,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     private let note = CenteredTextField(wrappingLabelWithString:"选择文件夹后逐本分析。候选建议不会自动改名，需勾选并应用。")
     private let scanButton = NSButton(title:"分析未完成项",target:nil,action:nil)
     private let stopButton = NSButton(title:"停止",target:nil,action:nil)
-    private let applyButton = NSButton(title:"改名勾选项",target:nil,action:nil)
+    private let applyButton = NSButton(title:"保存信息并改名",target:nil,action:nil)
     private let detailNote = CenteredTextField(wrappingLabelWithString:"")
     private let queue = OperationQueue()
     private var generation = UUID(), closed = false, stopRequested = false
@@ -100,7 +100,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     override init() {
         super.init(); window.title = "批量规范命名"; window.isReleasedWhenClosed = false; window.minSize = NSSize(width:1100,height:790); window.delegate = self; window.identifier = .init("UVZBatchNaming")
         queue.maxConcurrentOperationCount = 1; queue.qualityOfService = .utility
-        useOCR.state = .on; saveMetadata.state = .off; preserveDates.state = AppSettings().preserveFileDates ? .on : .off
+        useOCR.state = .on; preserveDates.state = AppSettings().preserveFileDates ? .on : .off
         uniformStyle.addItems(withTitles:namingStyles.map(\.title)); uniformStyle.selectItem(at:namingStyles.firstIndex(where:{$0.id == NamingPreferences.preferred()}) ?? 0); uniformStyle.target = self; uniformStyle.action = #selector(uniformStyleChanged)
         folderLabel.lineBreakMode = .byTruncatingMiddle; folderLabel.setContentCompressionResistancePriority(.defaultLow,for:.horizontal)
         let choose = button("选择文件夹…",#selector(chooseFolder)); let rescan = button("重新扫描",#selector(rescanFolder))
@@ -128,7 +128,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         formatHint.font = .systemFont(ofSize:11); formatHint.textColor = .secondaryLabelColor
         finalName.delegate = self; finalName.identifier = .init("final-name"); finalName.placeholderString = "可手工修订最终名称，扩展名自动保留"
         let nameRow = NSStackView(views:[CenteredTextField(labelWithString:"最终名称"),finalName]); nameRow.spacing = 8
-        let options = NSStackView(views:[saveMetadata,preserveDates,NSView(),button("导出清单…",#selector(exportCSV))]); options.spacing = 12
+        let options = NSStackView(views:[metadataHint,preserveDates,NSView(),button("导出清单…",#selector(exportCSV))]); options.spacing = 12
         note.font = .systemFont(ofSize:11); note.textColor = .secondaryLabelColor
         applyButton.target = self; applyButton.action = #selector(applySelected); applyButton.bezelStyle = .rounded
         let footer = NSStackView(views:[note,NSView(),button("关闭",#selector(closeWindow)),applyButton]); footer.spacing = 10
@@ -300,7 +300,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     private func requests() -> [(Int,BatchNameRequest)] {
         items.indices.filter { items[$0].included && items[$0].proposal != nil && items[$0].outcome == nil }.map { index in
             let item = items[index], p = item.proposal!
-            return (index,BatchNameRequest(path:item.url.path,stem:item.stem,metadata:saveMetadata.state == .on ? p.metadata : nil,fingerprint:p.fingerprint))
+            return (index,BatchNameRequest(path:item.url.path,stem:item.stem,metadata:p.metadata,fingerprint:p.fingerprint))
         }
     }
     @discardableResult @objc func checkNames() -> Bool {
@@ -347,7 +347,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         scanButton.isEnabled = !isAnalysing && !isApplying && !items.isEmpty; stopButton.isEnabled = isAnalysing || isApplying
         recognitionControls.language.isEnabled = !isAnalysing && !isApplying; recognitionControls.layout.isEnabled = !isAnalysing && !isApplying
         uniformStyle.isEnabled = !isApplying; useOCR.isEnabled = !isAnalysing && !isApplying; recursive.isEnabled = !isAnalysing && !isApplying
-        saveMetadata.isEnabled = !isApplying; preserveDates.isEnabled = !isApplying
+        preserveDates.isEnabled = !isApplying
         let eligible = items.filter {$0.proposal != nil && $0.outcome == nil}, count = eligible.filter(\.included).count
         selectionHeader.check.state = count == 0 ? .off : count == eligible.count ? .on : .mixed
         selectionHeader.check.isEnabled = !isApplying && !isAnalysing && !eligible.isEmpty

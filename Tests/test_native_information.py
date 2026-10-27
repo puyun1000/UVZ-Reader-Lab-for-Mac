@@ -57,7 +57,8 @@ with tempfile.TemporaryDirectory(prefix='uvz-native013-') as td:
   # Existing directory edits and unknown companion files survive migration and renaming.
   legacy.mkdir();(legacy/'BookInfo.dat').write_text('书名=旧旁存');(legacy/'Bookcontents.dat').write_text('目录|01|1|0|6\r\n');(legacy/'user-note.txt').write_text('keep')
   loaded=run('--inspect',dest)['metadata'];plan.write_text(json.dumps(dict(stem='迁移目录',metadata=loaded),ensure_ascii=False));new=Path(run('--update-information',dest,plan)['path']);side=Path(str(new)+'.uvzmeta')
-  assert (side/'user-note.txt').read_text()=='keep' and (side/'Bookcontents.dat').exists() and not (side/'BookInfo.dat').exists()
+  assert (side/'user-note.txt').read_text()=='keep' and not (side/'Bookcontents.dat').exists() and not (side/'BookInfo.dat').exists()
+  assert run('--inspect',new)['chapters']==[dict(title='目录',page=1,level=0)]
   assert run('--inspect',new)['metadata']['书名']=='旧旁存';checks.append(ext+' retains pre-existing directory edits and user files; no metadata sidecar remains')
   before=new.read_bytes();plan.write_text(json.dumps(dict(stem='迁移目录',metadata=loaded),ensure_ascii=False));run('--update-information',new,plan,'--backup');assert any(x.read_bytes()==before for x in f.glob(new.name+'.backup-*'));checks.append(ext+' explicit backup stores the pre-edit document')
  # Independent tools see standard PDF keys, while every custom field round-trips natively.

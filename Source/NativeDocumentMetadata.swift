@@ -56,6 +56,9 @@ enum NativeDocumentMetadata {
         }
         return values
     }
+    private static func equalContents(_ a:[BookChapter],_ b:[BookChapter]) -> Bool {
+        a.count == b.count && zip(a,b).allSatisfy {$0.title == $1.title && $0.pageIndex == $1.pageIndex && $0.level == $1.level}
+    }
     static func quote(_ text: String) -> String { String(decoding:try! JSONEncoder().encode(text),as:UTF8.self) }
     static func savePDF(_ pdf: PDFDocument,attributes: [AnyHashable:Any],from source: URL,to target: URL,expected: [String:String]?) throws {
         pdf.documentAttributes = attributes
@@ -72,7 +75,7 @@ enum NativeDocumentMetadata {
         guard valid() else { throw ReaderFailure("PDF图书信息回读校验失败，未替换原文件。") }
     }
 
-    static func write(_ values: [String:String],from source: URL,to target: URL) throws {
+    static func write(_ values: [String:String],from source: URL,to target: URL,contents: [BookChapter]? = nil) throws {
         let encoded = try JSONEncoder().encode(values)
         if source.pathExtension.lowercased() == "pdf" {
             guard let pdf = PDFDocument(url:source),!pdf.isLocked else { throw ReaderFailure("PDF无法读取或尚未解锁。") }
@@ -80,7 +83,21 @@ enum NativeDocumentMetadata {
             var attributes = pdf.documentAttributes ?? [:]
             for (field,name) in mapping { attributes[PDFDocumentAttribute(rawValue:name)] = values[field] ?? "" }
             attributes[PDFDocumentAttribute(rawValue:key)] = String(decoding:encoded,as:UTF8.self)
-            try savePDF(pdf,attributes:attributes,from:source,to:target,expected:values)
+            if let contents {try NativePDFOutline.write(contents,attributes:attributes,from:source,to:target)}
+            else {try savePDF(pdf,attributes:attributes,from:source,to:target,expected:values)}
+            if let contents {
+                guard let check=PDFDocument(url:target),check.pageCount==pdf.pageCount,pdfValues(check)==values else { throw ReaderFailure("PDF目录与图书信息无法回读。") }
+                var actual:[BookChapter]=[]
+                func visit(_ parent:PDFOutline,_ level:Int) {
+                    for i in 0..<parent.numberOfChildren {
+                        guard let node=parent.child(at:i) else {continue}
+                        let page=node.destination?.page.map {check.index(for:$0)} ?? -1
+                        actual.append(.init(title:node.label ?? "",pageIndex:page,level:level,path:nil));visit(node,level+1)
+                    }
+                }
+                if let root=check.outlineRoot { visit(root,0) }
+                guard equalContents(actual,contents) else {throw ReaderFailure("PDF目录回读校验失败，未替换原文件。")}
+            }
         } else {
             var raw = try djvuRaw(source)
             for (field,name) in mapping { raw.removeValue(forKey:name); raw[name.lowercased()] = values[field] ?? "" }
@@ -88,9 +105,23 @@ enum NativeDocumentMetadata {
             let script = FileManager.default.temporaryDirectory.appendingPathComponent("uvz-info-"+UUID().uuidString+".dsed")
             defer { try? FileManager.default.removeItem(at:script) }
             let entries = raw.sorted {$0.key<$1.key}.map { $0.key+"\t"+quote($0.value) }.joined(separator:"\n")
-            try ("select; set-meta\n"+entries+"\n.\nsave-bundled "+quote(target.path)+"\n").write(to:script,atomically:true,encoding:.utf8)
+            let outline=script.appendingPathExtension("outline")
+            defer {try? FileManager.default.removeItem(at:outline)}
+            var commands="select; set-meta\n"+entries+"\n.\n"
+            if let contents {
+                var text="(bookmarks\n",depth=0
+                for chapter in contents {
+                    while depth>chapter.level { text += ")\n";depth -= 1 }
+                    text += "("+quote(chapter.title)+" "+quote(chapter.pageIndex<0 ? "" : "#\(chapter.pageIndex+1)")+"\n";depth += 1
+                }
+                text += String(repeating:")\n",count:depth)+")\n"
+                try text.write(to:outline,atomically:true,encoding:.utf8);commands += "set-outline "+quote(outline.path)+"\n"
+            }
+            try (commands+"save-bundled "+quote(target.path)+"\n").write(to:script,atomically:true,encoding:.utf8)
             _ = try DjVuTools.run("djvused",["-u","-f",script.path,source.path],limit:120)
-            guard try DjVuTools.inspect(source).0 == DjVuTools.inspect(target).0,try djvuValues(target) == values else { throw ReaderFailure("DjVu图书信息回读校验失败，未替换原文件。") }
+            let original=try DjVuTools.inspect(source),check=try DjVuTools.inspect(target)
+            guard original.0 == check.0,try djvuValues(target) == values else { throw ReaderFailure("DjVu图书信息回读校验失败，未替换原文件。") }
+            if let contents, !equalContents(check.1,contents) {throw ReaderFailure("DjVu目录回读校验失败，未替换原文件。") }
         }
     }
 }
@@ -102,7 +133,7 @@ extension BookArchive {
 /// A metadata-only incremental PDF revision. The original byte stream is retained
 /// verbatim, including all page images, catalog objects, annotations and outlines.
 /// Handles both classic xref tables and xref-stream trailers, including /Prev.
-private enum PDFInformationRevision {
+enum PDFInformationRevision {
     struct Scanner {
         let data: Data
         var at: Int
@@ -175,10 +206,10 @@ private enum PDFInformationRevision {
             }
         }
     }
-    private static func pdfString(_ text: String) -> String {
+    static func pdfString(_ text: String) -> String {
         "<FEFF"+text.utf16.map { String(format:"%04X",UInt32($0)) }.joined()+">"
     }
-    private static func encoded(_ value: Any) throws -> String {
+    static func encoded(_ value: Any) throws -> String {
         if let text=value as? String { return pdfString(text) }
         if let date=value as? Date {
             let formatter=DateFormatter();formatter.locale=Locale(identifier:"en_US_POSIX");formatter.timeZone=TimeZone(secondsFromGMT:0);formatter.dateFormat="'D:'yyyyMMddHHmmss'Z'"

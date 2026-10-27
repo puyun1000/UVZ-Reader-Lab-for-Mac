@@ -2,7 +2,7 @@ import AppKit
 import CryptoKit
 import VisionKit
 
-final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
+final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation, NSSplitViewDelegate {
     let window = ChineseWindow(contentRect: NSRect(x: 0, y: 0, width: 1160, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     let document = PageDocumentView()
     let scroll = ReaderScrollView()
@@ -24,7 +24,9 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private let toolbar = FlowToolbar()
     private var toolbarHeight: NSLayoutConstraint!
     private let sidebar = NSStackView()
-    private var sidebarWidth: NSLayoutConstraint!
+    let readingSplit=NSSplitView()
+    private var sidebarWidth:NSLayoutConstraint!
+    private var preferredSidebarWidth:CGFloat=260
     private let note = CenteredTextField(wrappingLabelWithString: "")
     private let status = CenteredTextField(labelWithString: "打开电子书，开始阅读")
     private let ocrStatus = CenteredTextField(labelWithString: "")
@@ -142,7 +144,9 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         renameButton.title="图书信息…";renameButton.image=NSImage(systemSymbolName:"info.circle",accessibilityDescription:"书籍信息与重命名");renameButton.imagePosition = .imageLeading
         repairButton.title="页面校对…"
         let filebar = NSStackView(views: [filenameLabel, repairButton, region, renameButton]); filebar.spacing = 10
-        let body = NSStackView(views: [sidebar, scroll]); body.spacing = 0
+        let body=readingSplit;body.isVertical=true;body.dividerStyle = .thin;body.delegate=self
+        body.addArrangedSubview(sidebar);body.addArrangedSubview(scroll)
+        body.setHoldingPriority(.init(rawValue:260),forSubviewAt:0);body.setHoldingPriority(.defaultLow,forSubviewAt:1)
         status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabelColor; status.lineBreakMode = .byTruncatingMiddle
         ocrStatus.font = .systemFont(ofSize: 11); ocrStatus.textColor = .secondaryLabelColor
         let footer = NSStackView(views: [status, auditButton, NSView(), ocrStatus]); footer.spacing = 12
@@ -169,6 +173,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
             guard let self, self.window.isKeyWindow else { return event }
             return self.handleKey(event) ? nil : event
         }
+        root.layoutSubtreeIfNeeded();readingSplit.setPosition(preferredSidebarWidth,ofDividerAt:0)
         updateControls(); relayout(preservePosition: false)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
@@ -272,7 +277,9 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         let background=NSVisualEffectView();background.material = .sidebar;background.blendingMode = .withinWindow;background.state = .active;background.translatesAutoresizingMaskIntoConstraints=false
         sidebar.addSubview(background,positioned:.below,relativeTo:nil)
         NSLayoutConstraint.activate([background.leadingAnchor.constraint(equalTo:sidebar.leadingAnchor),background.trailingAnchor.constraint(equalTo:sidebar.trailingAnchor),background.topAnchor.constraint(equalTo:sidebar.topAnchor),background.bottomAnchor.constraint(equalTo:sidebar.bottomAnchor)])
-        sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 260); sidebarWidth.isActive = true
+        sidebarWidth = sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant:180);sidebarWidth.isActive=true
+        let stored=UserDefaults.standard.double(forKey:"reading.sidebarWidth")
+        preferredSidebarWidth=stored.isFinite && stored>=180 ? min(700,stored) : 260
         list.heightAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
     }
     func open(_ url: URL, preserving savedState: ReadingState? = nil) {
@@ -499,7 +506,24 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         }
     }
     @objc func resetAppearance() { state.rotation = 0; state.crop = 0; invalidateImages(); relayout(preservePosition: true); save() }
-    @objc func toggleSidebar() { sidebarVisible.toggle(); sidebar.isHidden = !sidebarVisible; root.layoutSubtreeIfNeeded(); relayout(preservePosition: true) }
+    @objc func toggleSidebar() {
+        if sidebarVisible {preferredSidebarWidth=sidebar.frame.width}
+        sidebarVisible.toggle();sidebarWidth.isActive=sidebarVisible;sidebar.isHidden = !sidebarVisible
+        readingSplit.adjustSubviews();root.layoutSubtreeIfNeeded()
+        if sidebarVisible {readingSplit.setPosition(min(preferredSidebarWidth,max(180,readingSplit.bounds.width-320)),ofDividerAt:0)}
+        relayout(preservePosition:true)
+    }
+    func splitView(_ splitView:NSSplitView,constrainMinCoordinate proposed:CGFloat,ofSubviewAt index:Int) -> CGFloat {180}
+    func splitView(_ splitView:NSSplitView,constrainMaxCoordinate proposed:CGFloat,ofSubviewAt index:Int) -> CGFloat {min(700,max(180,splitView.bounds.width-320))}
+    func splitView(_ splitView:NSSplitView,shouldHideDividerAt index:Int) -> Bool {!sidebarVisible}
+    func splitViewDidResizeSubviews(_ notification:Notification) {
+        guard sidebarVisible,sidebar.frame.width>=180 else {return}
+        if let type=NSApp.currentEvent?.type,type == .leftMouseDragged || type == .leftMouseUp {
+            preferredSidebarWidth=min(700,sidebar.frame.width)
+            UserDefaults.standard.set(Double(preferredSidebarWidth),forKey:"reading.sidebarWidth")
+        }
+        if !layingOut {relayout(preservePosition:true)}
+    }
     @objc func togglePageNumbers() {
         includePageNumbers.toggle(); if !smokeMode { defaults.set(includePageNumbers, forKey: "showPageNumbersInContents") }
         rebuildNavigation()

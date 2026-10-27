@@ -50,6 +50,11 @@ def main():
   assert split=='OCR标题\t2\n\t子节\t3'
   text.write_text(split);assert [c['page'] for c in run('--parse-contents-text',book,text)['chapters']]==[7,8]
   checks.append('OCR 行末页码分离后可直接解析，保留缩进')
+  for original,expected in [('无页码分组','无页码分组'),('\t无页码子项','\t无页码子项'),('年份标题 2024\t','年份标题 2024\t'),('标题……3','标题\t3'),('\t子项　４','\t子项\t４')]:
+   prefix='根节点\n' if original.startswith('\t') else '';text.write_text(prefix+original);assert run('--parse-contents-text',book,text)['split']==prefix+expected
+  checks.append('页号整理仅分隔真实后缀，保留无页码标题、层级、点线与全角空格数字')
+  text.write_text('年份标题 2024');result=run('--parse-contents-text',book,text);assert result['text']=='年份标题 2024' and result['chapters'][0]['page']==0
+  checks.append('无目标的分组不输出末尾TAB，数字标题导出后仍保留分组含义')
   pdf=p/'sample.pdf';w=PdfWriter()
   for _ in range(8):w.add_blank_page(width=100,height=160)
   with pdf.open('wb') as out:w.write(out)

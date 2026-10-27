@@ -14,7 +14,7 @@ for QL_KIND in Preview Thumbnail; do
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$QL_ROOT/Info.plist")" "$QL_EXTENSION/Contents/Info.plist"
   /usr/bin/xcrun swiftc -O -swift-version 5 -target arm64-apple-macosx14.0 -sdk "$QL_SDK" -application-extension -parse-as-library \
     -module-name "UVZ$QL_KIND" -Xlinker -e -Xlinker _NSExtensionMain \
-    "$QL_ROOT/Source/BookArchive.swift" "$QL_ROOT/Source/DocumentFormats.swift" "$QL_ROOT/Source/NativeDocumentMetadata.swift" "$QL_ROOT/Source/PageDecoder.swift" \
+    "$QL_ROOT/Source/BookArchive.swift" "$QL_ROOT/Source/DocumentFormats.swift" "$QL_ROOT/Source/NativePDFOutline.swift" "$QL_ROOT/Source/NativeDocumentMetadata.swift" "$QL_ROOT/Source/PageDecoder.swift" \
     "$QL_ROOT/QuickLook/CoverRenderer.swift" "$QL_ROOT/QuickLook/${QL_KIND}Provider.swift" \
     "$QL_ROOT/.build/ZipBridge.o" "$QL_ROOT/.build/PDGDecoder.o" -lz -lc++ \
     -framework AppKit -framework ImageIO -framework CryptoKit -framework PDFKit -framework QuickLookUI -framework QuickLookThumbnailing -framework UniformTypeIdentifiers \

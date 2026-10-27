@@ -12,7 +12,7 @@ enum ContentsTextCodec {
         return chapters.map { chapter in
             var token = chapter.unresolvedTarget ?? map.token(chapter.page, localGroup: localGroup)
             if let target = chapter.unresolvedTarget, let localGroup, let address = try? PageAddressing.address(target), address.group == localGroup { token = String(address.number) }
-            return String(repeating: "\t", count: max(0, min(32, chapter.level))) + chapter.title + "\t" + token
+            return String(repeating: "\t", count: max(0, min(32, chapter.level))) + chapter.title + (token.isEmpty ? "" : "\t"+token)
         }.joined(separator: "\n")
     }
     static func chapters(_ text: String, book: BookArchive, base: Int = 1, defaultGroup: Int = 5, allowUnresolved: Bool = false) throws -> [BookEditDraft.Chapter] {
@@ -38,15 +38,39 @@ enum ContentsTextCodec {
         return result
     }
     static func splitTrailingNumbers(_ text: String) -> String {
-        let expression = try! NSRegularExpression(pattern: "^(\\t*)(.+?) +((?:cov|bok|leg|fow|!|att|bac|@)?-?[0-9]+) *$", options: .caseInsensitive)
-        return text.components(separatedBy: .newlines).map { line in
-            if line.drop(while: { $0 == "\t" }).contains("\t") { return line }
-            return expression.stringByReplacingMatches(in: line, range: NSRange(location: 0, length: (line as NSString).length), withTemplate: "$1$2\t$3")
-        }.joined(separator: "\n")
+        let expression=try! NSRegularExpression(pattern:"^(\\t*)(.+?)(?:[\\p{Zs} ]+|[.．·…⋯]{2,}[\\p{Zs} ]*)((?:cov|bok|leg|fow|!|att|bac|@)?-?[0-9０-９]+)[\\p{Zs} ]*$",options:.caseInsensitive)
+        return text.components(separatedBy:.newlines).map { line in
+            if line.drop(while:{$0 == "\t"}).contains("\t") {return line}
+            let value=line as NSString
+            guard let match=expression.firstMatch(in:line,range:NSRange(location:0,length:value.length)) else {return line}
+            return value.substring(with:match.range(at:1))+value.substring(with:match.range(at:2))+"\t"+value.substring(with:match.range(at:3))
+        }.joined(separator:"\n")
     }
 }
 
 final class ContentsTextView: ChineseTextView {
+    private var refreshingExtent=false
+    private var resizeObserver:NSObjectProtocol?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let observer=resizeObserver {NotificationCenter.default.removeObserver(observer);resizeObserver=nil}
+        if let clip=enclosingScrollView?.contentView {
+            clip.postsFrameChangedNotifications=true
+            resizeObserver=NotificationCenter.default.addObserver(forName:NSView.frameDidChangeNotification,object:clip,queue:.main) {[weak self] _ in self?.refreshExtent()}
+        }
+        refreshExtent()
+    }
+    deinit {if let observer=resizeObserver {NotificationCenter.default.removeObserver(observer)}}
+    override func didChangeText() {super.didChangeText();refreshExtent()}
+    func refreshExtent() {
+        guard !refreshingExtent,let container=textContainer,let manager=layoutManager else {return}
+        refreshingExtent=true;defer {refreshingExtent=false}
+        container.widthTracksTextView=false;container.containerSize=NSSize(width:1_000_000,height:CGFloat.greatestFiniteMagnitude)
+        manager.ensureLayout(for:container)
+        let used=manager.usedRect(for:container),clip=enclosingScrollView?.contentSize ?? .zero
+        setFrameSize(NSSize(width:max(clip.width,ceil(used.maxX)+textContainerInset.width*2+16),height:max(clip.height,ceil(used.maxY)+textContainerInset.height*2+16)))
+    }
+
     override func insertTab(_ sender: Any?) {
         if selectedRange().length > 0 { shiftIndent(1) }
         else { insertText("\t", replacementRange: selectedRange()) }

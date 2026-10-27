@@ -147,9 +147,9 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         textView.isAutomaticTextReplacementEnabled = false; textView.isContinuousSpellCheckingEnabled = false
         textView.textContainerInset = NSSize(width: 12, height: 12)
         textView.isVerticallyResizable = true; textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width]; textView.textContainer?.widthTracksTextView = false
+        textView.autoresizingMask = []; textView.textContainer?.widthTracksTextView = false
         textView.textContainer?.containerSize = NSSize(width: 100_000, height: CGFloat.greatestFiniteMagnitude)
-        let paragraph = NSMutableParagraphStyle(); paragraph.defaultTabInterval = 32; paragraph.tabStops = []
+        let paragraph = NSMutableParagraphStyle(); paragraph.defaultTabInterval = 32; paragraph.tabStops = [];paragraph.lineBreakMode = .byClipping
         textView.defaultParagraphStyle = paragraph
         let scroll = NSScrollView(); scroll.documentView = textView; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.borderType = .bezelBorder
         let hint = CenteredTextField(wrappingLabelWithString: book.usesPDGNumbering ? "每行：标题 ⇥ 页号；行首 TAB 定层级。分区内直接填该类型数字页号；全部类型时非正文加 cov／bok／leg／fow／!／att／bac 前缀。@15 表示物理第 15 页。" : "每行：标题 ⇥ 页码；行首 TAB 定层级。先设置正文基准页再录入；基准页之前用 -1、-2 等，@15 表示物理第 15 页。")
@@ -162,7 +162,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     private func selectedTextChapters() -> [BookEditDraft.Chapter] {
         activeCategory == 0 ? draft.chapters : draft.chapters.filter { ContentsTextCodec.category($0, book: book) == activeCategory - 1 }
     }
-    private func renderText() { textView.string = ContentsTextCodec.text(selectedTextChapters(), book: book, base: basePage, localGroup: activeCategory == 0 ? nil : activeCategory - 1); textView.undoManager?.removeAllActions(); updateScope() }
+    private func renderText() { textView.string = ContentsTextCodec.text(selectedTextChapters(), book: book, base: basePage, localGroup: activeCategory == 0 ? nil : activeCategory - 1); textView.undoManager?.removeAllActions(); textView.refreshExtent();updateScope() }
     @discardableResult private func commitText(strict: Bool = false) -> Bool {
         guard textActive else { return true }
         do {

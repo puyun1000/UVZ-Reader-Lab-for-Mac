@@ -77,9 +77,11 @@ class ChineseTextView:NSTextView {
 /// Single-line values align with their surrounding native controls at any
 /// control height. Wrapping labels and multiline editors keep their own layout.
 final class CenteredTextFieldCell:NSTextFieldCell {
+    private var preparingEditor=false
     override func drawingRect(forBounds rect:NSRect) -> NSRect {
+        if preparingEditor {return rect}
         var interior=super.drawingRect(forBounds:rect)
-        guard isScrollable || usesSingleLineMode || !wraps else {return interior}
+        guard !preparingEditor,isScrollable || usesSingleLineMode || !wraps else {return interior}
         let font=self.font ?? .systemFont(ofSize:NSFont.systemFontSize)
         let height=ceil(font.ascender-font.descender+font.leading)
         interior.origin.y += max(0,(interior.height-height)/2)
@@ -87,10 +89,14 @@ final class CenteredTextFieldCell:NSTextFieldCell {
         return interior
     }
     override func edit(withFrame rect:NSRect,in view:NSView,editor:NSText,delegate:Any?,event:NSEvent?) {
-        super.edit(withFrame:drawingRect(forBounds:rect),in:view,editor:editor,delegate:delegate,event:event)
+        let frame=preparingEditor ? rect : drawingRect(forBounds:rect)
+        let previous=preparingEditor;preparingEditor=true;defer {preparingEditor=previous}
+        super.edit(withFrame:frame,in:view,editor:editor,delegate:delegate,event:event)
     }
     override func select(withFrame rect:NSRect,in view:NSView,editor:NSText,delegate:Any?,start:Int,length:Int) {
-        super.select(withFrame:drawingRect(forBounds:rect),in:view,editor:editor,delegate:delegate,start:start,length:length)
+        let frame=preparingEditor ? rect : drawingRect(forBounds:rect)
+        let previous=preparingEditor;preparingEditor=true;defer {preparingEditor=previous}
+        super.select(withFrame:frame,in:view,editor:editor,delegate:delegate,start:start,length:length)
     }
 }
 class CenteredTextField:NSTextField {

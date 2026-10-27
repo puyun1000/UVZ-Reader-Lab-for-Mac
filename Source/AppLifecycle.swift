@@ -296,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     batch.evidenceTable.selectRowIndexes(IndexSet(integer:sourceRow),byExtendingSelection:false)
                     guard NSApplication.shared.sendAction(batch.evidenceTable.doubleAction!,to:batch.evidenceTable.target,from:batch.evidenceTable),batch.fields[4].stringValue == "江苏人民出版社" else {throw ReaderFailure("Batch double-click source failed")}
                     smokeChecks.append("批量来源表双击采用对应字段并刷新名称")
-                    batch.reviewed.state = .on; batch.reviewChanged(); let include = NSButton(); include.tag = 0; include.state = .on; batch.includeChanged(include); batch.saveMetadata.state = .off; batch.preserveDates.state = .on
+                    batch.reviewed.state = .on; batch.reviewChanged(); let include = NSButton(); include.tag = 0; include.state = .on; batch.includeChanged(include); batch.preserveDates.state = .on
                     guard batch.checkNames(),batch.items[0].stem.hasPrefix("【"),batch.items[0].stem.contains("界面核对书名") else { throw ReaderFailure("Review or format choice failed") }
                     guard batch.window.contentView!.bounds.width<=1500,batch.window.contentView!.bounds.height<=1100 else { throw ReaderFailure("Batch layout exceeds usable size") }
                     batch.window.contentView?.layoutSubtreeIfNeeded(); batch.fitTableColumns()
@@ -316,9 +316,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     batch.applySelected(); advance()
                 default:
                     guard let batch = batchNaming,!batch.isApplying,let reader = smokePrimary,reader.book?.url == batch.items[0].url,reader.hasRenderedImage else { batchTick(); return }
-                    guard batch.items[0].outcome == "已完成",batch.items[1].outcome == nil,reader.state.page == 1,try Data(contentsOf:batch.items[0].url) == editedBytes else { throw ReaderFailure("Batch rename, selection or reading position failed") }
+                    guard batch.items[0].outcome == "已完成",batch.items[1].outcome == nil,reader.state.page == 1,try BookArchive(url:batch.items[0].url).metadata == batch.items[0].proposal!.metadata else { throw ReaderFailure("Batch rename, selection or reading position failed") }
                     guard try BatchNaming.fingerprint(batch.items[1].url) == batchFingerprints[batch.items[1].url.path] else { throw ReaderFailure("Unchecked book changed") }
-                    smokeChecks.append("仅改名勾选项；默认不写BookInfo，整书字节不变")
+                    smokeChecks.append("仅处理勾选项；改名同时保存全部核对信息")
                     smokeChecks.append("已打开图书更新路径并保留阅读位置，未勾选项目不变")
                     try captureView(batch.window.contentView!,to:output.deletingPathExtension().appendingPathExtension("done.png")); batch.closeWindow(); guard batchNaming == nil else { throw ReaderFailure("Batch close failed") }
                     try JSONSerialization.data(withJSONObject:["passed":true,"checks":smokeChecks,"version":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") ?? ""],options:[.prettyPrinted,.sortedKeys]).write(to:output.deletingPathExtension().appendingPathExtension("json"))

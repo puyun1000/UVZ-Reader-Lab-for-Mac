@@ -417,6 +417,9 @@ if args.count >= 3, args[1] == "--inspect" || args[1] == "--verify" || args[1] =
 }
 
 let app = NSApplication.shared
+if args.count==4,args[1]=="--workflow-ui-test" {
+    let test=WorkflowUITest(folder:URL(fileURLWithPath:args[2]),output:URL(fileURLWithPath:args[3]));app.delegate=test;app.setActivationPolicy(.accessory);app.run();exit(0)
+}
 let delegate = AppDelegate()
 if args.count >= 4, args[1] == "--smoke-test" || args[1] == "--editor-ui-test" || args[1] == "--metadata-ui-test" || args[1] == "--region-ui-test" || args[1] == "--paging-ui-test" || args[1] == "--repair-ui-test" {
     delegate.repairTest = args[1] == "--repair-ui-test"
