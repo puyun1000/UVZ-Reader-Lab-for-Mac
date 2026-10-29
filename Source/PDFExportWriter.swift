@@ -33,18 +33,24 @@ struct ExportImage {
         }
         return matrix
     }
-    static func make(data: Data?, image: @autoclosure () throws -> CGImage, fallbackDPI: Double, imageIndex: Int = 0) throws -> Self {
+    static func make(data: Data?, image: @autoclosure () throws -> CGImage, fallbackDPI: Double, imageIndex: Int = 0, sourceDPI:Double? = nil) throws -> Self {
         var props: [CFString:Any] = [:]
         if let data,let src = CGImageSourceCreateWithData(data as CFData,nil) { props = CGImageSourceCopyPropertiesAtIndex(src,imageIndex,nil) as? [CFString:Any] ?? [:] }
-        let dx = props[kCGImagePropertyDPIWidth] as? Double,dy = props[kCGImagePropertyDPIHeight] as? Double
-        func valid(_ value:Double?) -> Bool {value.map {$0.isFinite && (36...2400).contains($0)} ?? false}
+        let known=sourceDPI ?? data.flatMap {DjVuPageProperties.singlePage($0).map {Double($0.dpi)}}
+        let dx = props[kCGImagePropertyDPIWidth] as? Double ?? known,dy = props[kCGImagePropertyDPIHeight] as? Double ?? known
+        func valid(_ value:Double?) -> Bool {value.map {$0.isFinite && (25...6000).contains($0)} ?? false}
         func dpi(_ value: Double?) -> Double {valid(value) ? value! : fallbackDPI}
         let missing = !valid(dx) || !valid(dy),orientation = props[kCGImagePropertyOrientation] as? Int ?? 1
         if let data,data.starts(with:[0xff,0xd8]),let w = props[kCGImagePropertyPixelWidth] as? Int,let h = props[kCGImagePropertyPixelHeight] as? Int,w>0,h>0,w<=30000,h<=30000,w*h<=60_000_000,
            let model = props[kCGImagePropertyColorModel] as? String,["Gray","RGB"].contains(model), (props[kCGImagePropertyDepth] as? Int ?? 8) == 8 {
+            // Header metadata alone also succeeds for truncated JPEG streams.
+            // Decode for integrity, then retain the original compressed bytes.
+            _ = try PageDecoder.image(data,applyOrientation:false)
             return Self(bytes:data,width:w,height:h,bits:8,colors:model == "Gray" ? 1 : 3,jpeg:true,orientation:orientation,dpiX:dpi(dx),dpiY:dpi(dy),usedFallbackDPI:missing,icc:jpegICC(data))
         }
-        let cg = try image(),w = cg.width,h = cg.height
+        // Reuse the already decoded payload, including corrected photo PNGs.
+        // Export applies its orientation matrix once, independently of reading/OCR.
+        let cg = try data.map {try PageDecoder.image($0,pdfPage:imageIndex,applyOrientation:false)} ?? image(),w = cg.width,h = cg.height
         guard cg.bitsPerComponent<=8,(props[kCGImagePropertyDepth] as? Int ?? 8)<=8 else {throw ReaderFailure("此页位深超过8位，本版暂不支持其无损转换，未降低精度。请保留原书。") }
         guard w>0,h>0,w<=30000,h<=30000,w*h<=60_000_000 else { throw ReaderFailure("页面尺寸超过转换限制。") }
         let gray = cg.colorSpace?.model == .monochrome

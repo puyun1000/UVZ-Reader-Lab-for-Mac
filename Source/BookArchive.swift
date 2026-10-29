@@ -220,7 +220,12 @@ final class BookArchive {
     }
     func exportImage(at index: Int) throws -> CGImage {
         if let loose,["djvu","djv"].contains(loose.kind) { return try DjVuTools.render(url,page:index+1,fullResolution:true) }
-        return try pageImage(at:index)
+        if loose?.kind=="pdf" || pages[index].pdfPage != nil {return try pageImage(at:index)}
+        return try PageDecoder.image(pageData(at:index),pdfPage:exportImageIndex(index),applyOrientation:false)
+    }
+    func exportDPI(at index:Int)throws->Double? {
+        if let loose,["djvu","djv"].contains(loose.kind) {return try DjVuTools.resolution(url,page:index+1)}
+        return nil
     }
     var exportImageIndex: (Int)->Int { { [self] index in ["tif","tiff"].contains(loose?.kind ?? "") ? index : 0 } }
     var hasExportContentsOverride: Bool {loose?.storedMetadata["bookcontents.dat"] != nil}

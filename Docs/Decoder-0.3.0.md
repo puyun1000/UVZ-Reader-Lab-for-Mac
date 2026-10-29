@@ -1,5 +1,7 @@
 # UVZ阅读器 0.3.0 解码机制与本项目扩展
 
+勘误（0.18.0）：此前“内嵌DjVu按原始像素读取”的说明未被像素尺寸检查覆盖，`-scale=100`实际按100DPI输出。此参数已改为`-subsample=1`，并补齐JPEG图层与V2照片页的行序/通道修正。当前实现与验证以[0.18保真说明](Raster-Fidelity-0.18.md)为准。
+
 ## 1. 检查基线
 
 2026-10-26检查用户已安装的阿虚UVZ阅读器0.3.0（build30）：应用包的许可文件明确写明解码核心改编自100apps/pdg_decoder，固定提交aa6f00258534e537f1be06223fb4aee2772e3546，且“No Windows binaries are included”。主程序为原生Mach-O；可见pdg_decode/pdg_free入口、TIFF、JPEG、JPEG2000和DjVu解码实现。应用包没有Windows DLL，也没有公开Swift/C++源码。不能将其表述为直接内置老马的Windows解码器。

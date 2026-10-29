@@ -1,4 +1,4 @@
-# UVZ Reader Lab 0.17.1
+# UVZ Reader Lab 0.18.0
 
 独立实现的原生macOS扫描图书阅读与整理应用。支持UVZ／ZIP、PDG及PDG文件夹、PDF、DjVu和多页TIFF。适用于Apple芯片Mac、macOS14及以上；当前使用临时签名，未经Apple公证。
 
@@ -15,9 +15,9 @@
 
 安装到“应用程序”后打开一次，以注册Quick Look扩展。选中UVZ按空格预览，可查看后续页；更新后需要关闭旧预览窗口再打开。如系统未启用，在“系统设置 → 通用 → 登录项与扩展 → 快速查看”中选择本应用。
 
-图书信息与命名在阅读窗口或“文件”菜单中，批量规范命名使用⇧⌘B，转换工作台使用⇧⌘K。识别和名称建议只更改草稿，保存／应用后才写文件；批量默认只改名。功能说明与更新说明统一在“帮助”中。
+图书信息与命名在阅读窗口或“文件”菜单中，批量规范命名使用⇧⌘B，转换工作台使用⇧⌘K。识别和名称建议只更改草稿，保存／应用后才写文件；批量保存核对信息并改名。功能说明与更新说明统一在“帮助”中。
 
-0.17.1修复编辑文字位置、内嵌PDF/DjVu目录、批量书目保存、可调目录栏及长行目录编辑；0.16.0修复无信息字典PDF保存及改名失败，补充旧版PDG、预处理编码、内嵌DjVu与JPEG2000页面支持。机制、来源和边界见[解码扩展说明](Docs/Decoder-0.3.0.md)。
+0.18.0修复DjVu原始像素、JPEG图层及超星照片页的行序和颜色，补齐原始DPI、EXIF方向和损坏图像校验；详见[保真说明](Docs/Raster-Fidelity-0.18.md)。0.17.1修复编辑文字位置、内嵌PDF/DjVu目录、批量书目保存、可调目录栏及长行目录编辑；0.16.0修复无信息字典PDF保存及改名失败，补充旧版PDG、预处理编码、内嵌DjVu与JPEG2000页面支持。机制、来源和边界见[解码扩展说明](Docs/Decoder-0.3.0.md)。
 
 完整使用说明见[UserGuide](Resources/UserGuide.md)，更新记录见[ReleaseNotes](Resources/ReleaseNotes.md)，书目提取结构与限制见[解析说明](Docs/BibliographicExtraction.md)，转换路径与限制见[转换说明](Docs/Conversion.md)，在线服务机制与验证见[研究记录](Docs/OnlineReferences.md)。
 
@@ -25,7 +25,7 @@
 
 使用macOS自带命令行开发工具运行 `./build.sh`，输出应用包及应用ZIP；运行时无需Python或Homebrew。DjVuLibre许可与对应源码随包提供。
 
-`Tests/`包含归档与解码、格式、目录、信息保存、页面地址、编码纠正、书目解析及批量改名测试。`--naming-model-tests`验证字段推荐和格式管理；`QuickLook/Tests/PreviewControllerTests.swift`验证多页预览控制器。发布验证结果见 `Verification.json`。
+`Tests/`包含归档与解码、格式、目录、信息保存、页面地址、编码纠正、书目解析及批量改名测试。`--naming-model-tests`验证字段推荐和格式管理；`QuickLook/Tests/PreviewControllerTests.swift`验证多页预览控制器。发布验证结果见[验证摘要](Docs/Validation-0.18.0.md)。
 
 图书信息推荐依赖本机OCR和规则，不能替代人工书目核对。单一冲突来源、书法竖排、模糊扫描、多个丛书／ISBN及多卷合订仍可能无法准确分解。批量执行逐本完成，尚不提供执行后整批撤销。
 

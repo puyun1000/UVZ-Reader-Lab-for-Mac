@@ -29,8 +29,9 @@ DjVuLibre 3.5.30
 https://djvu.sourceforge.net/
 Source: https://downloads.sourceforge.net/project/djvu/DjVuLibre/3.5.30/djvulibre-3.5.30.tar.gz
 
-The bundled standalone programs ddjvu and djvused are built from unmodified
-DjVuLibre source. They are licensed under the GNU General Public License,
+The bundled standalone programs ddjvu and djvused are built from DjVuLibre
+source with reader-safety.patch (pixel limits and explicit unsupported-layer
+errors). They are licensed under the GNU General Public License,
 version 2 or (at your option) any later version. Their full corresponding
 source archive, GPL text, and the exact build script are included in
 ThirdParty/DjVuLibre in the source distribution, and in the app at
@@ -38,7 +39,23 @@ Contents/Resources/DjVuLibre. Copyright notices are retained in that source.
 
 The reader invokes these programs as separate processes. No DjVuLibre
 library is linked into the Swift reader executable. Build flags disable
-external JPEG/TIFF/X dependencies; RGB PPM is used for page transfer.
+external TIFF/X dependencies; JPEG is statically linked, and RGB PPM is used
+for page transfer. The unmodified source archive and local patch are included.
+
+----------------------
+Independent JPEG Group, release 10 (25-Jan-2026)
+https://www.ijg.org/
+Source: https://www.ijg.org/files/jpegsrc.v10.tar.gz
+
+This software is based in part on the work of the Independent JPEG Group.
+JPEG is linked only into the separate DjVuLibre programs, not the Swift
+reader. Full corresponding source and the original README with legal
+conditions are in ThirdParty/JPEG and Contents/Resources/JPEG.
+
+Photo-format behaviour in 0.18.0 references the UVZ Reader source snapshot
+shared by its author Axu, dated 2026-10-29. Only V2 PDG provenance plus a
+photo-only BG44 layer enables DIB row/channel restoration. This project's
+Swift implementation is independent; no Axu code or Windows DLL is included.
 
 Design and service references for 0.14.0
 

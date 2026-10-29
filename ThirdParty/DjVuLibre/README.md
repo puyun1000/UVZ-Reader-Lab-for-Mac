@@ -15,12 +15,14 @@ zsh build-tools.sh /absolute/output/directory
 ```
 
 The script configures the library statically for its own standalone tools,
-without external JPEG, TIFF, X11, XML or desktop dependencies, targeting
+with a static IJG JPEG 10 library and without TIFF, X11, XML or desktop dependencies, targeting
 macOS 14 or later. The Swift reader is not linked with this library. It
 executes `djvused` to index documents and `ddjvu` to render pages as RGB PPM.
 
-No source patch is applied. Ad hoc code signing is applied to the copied
-executables by the application's `build.sh`. The JPEG-dependent DjVu
-chunks are outside this build's compatibility scope. TIFF output support
-is unnecessary because RGB PPM is used. Only ddjvu and djvused are shipped;
-upstream build tools and sample documents remain available in this source.
+`reader-safety.patch` adds pixel checks before page/JPEG allocation and rejects
+unsupported JPEG2000 and CMYK JPEG layers instead of returning partial images.
+JPEG background/foreground chunks are enabled. The patch is local; the source
+tarball remains unmodified. JPEG source and license are in ../JPEG. A build
+fingerprint invalidates old helper caches when source, patch or flags change.
+Ad hoc signing is applied by build.sh. Only ddjvu and djvused are shipped;
+c44/cjb2/djvumake are retained in the local build cache for generated tests.

@@ -7,12 +7,16 @@ LAB_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/uvz-reader-lab.XXXXXX")
 trap 'rm -rf "$LAB_STAGE"' EXIT
 LAB_STAGE_APP="$LAB_STAGE/UVZ Reader Lab.app"
 mkdir -p "$LAB_STAGE_APP/Contents/MacOS" "$LAB_STAGE_APP/Contents/Resources" "$LAB_BUILD"
-if [[ ! -x "$LAB_BUILD/DjVuTools/ddjvu" || ! -x "$LAB_BUILD/DjVuTools/djvused" ]]; then
+LAB_DJVU_ID=$(/bin/zsh "$LAB_ROOT/ThirdParty/DjVuLibre/build-tools.sh" --fingerprint)
+if [[ ! -x "$LAB_BUILD/DjVuTools/ddjvu" || ! -x "$LAB_BUILD/DjVuTools/djvused" || "$(cat "$LAB_BUILD/DjVuTools/build-id" 2>/dev/null || true)" != "$LAB_DJVU_ID" ]]; then
   /bin/zsh "$LAB_ROOT/ThirdParty/DjVuLibre/build-tools.sh" "$LAB_BUILD/DjVuTools"
 fi
 mkdir -p "$LAB_STAGE_APP/Contents/Helpers" "$LAB_STAGE_APP/Contents/Resources/DjVuLibre"
 /bin/cp "$LAB_BUILD/DjVuTools/"{ddjvu,djvused} "$LAB_STAGE_APP/Contents/Helpers/"
 /bin/cp "$LAB_ROOT/ThirdParty/DjVuLibre/"{COPYING,djvulibre-3.5.30.tar.gz,build-tools.sh} "$LAB_STAGE_APP/Contents/Resources/DjVuLibre/"
+/bin/cp "$LAB_ROOT/ThirdParty/DjVuLibre/reader-safety.patch" "$LAB_STAGE_APP/Contents/Resources/DjVuLibre/"
+mkdir -p "$LAB_STAGE_APP/Contents/Resources/JPEG"
+/bin/cp "$LAB_ROOT/ThirdParty/JPEG/"{README.ijg,jpegsrc.v10.tar.gz} "$LAB_STAGE_APP/Contents/Resources/JPEG/"
 LAB_SDK=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
 /usr/bin/xcrun clang -O2 -arch arm64 -isysroot "$LAB_SDK" -mmacosx-version-min=14.0 -c "$LAB_ROOT/Source/ZipBridge.c" -o "$LAB_BUILD/ZipBridge.o"
 /usr/bin/xcrun clang++ -O2 -std=c++17 -arch arm64 -isysroot "$LAB_SDK" -mmacosx-version-min=14.0 -Wno-deprecated-declarations -c "$LAB_ROOT/Source/PDGDecoder.cpp" -o "$LAB_BUILD/PDGDecoder.o"

@@ -164,7 +164,9 @@ def main():
             out = folder / f'djvu{page}.png'
             run('--render-page', djvu, page, out, env=finder_env)
             with Image.open(out) as rendered:
-                assert max(rendered.size) <= 4000 and min(rendered.size) > 1000
+                native = subprocess.check_output([str(ROOT/'UVZ Reader Lab.app/Contents/Helpers/djvused'),'-u','-e',f'select {page}; size',str(djvu)],env=dict(os.environ,LANG='en_US.UTF-8',LC_CTYPE='en_US.UTF-8',LC_ALL='en_US.UTF-8'),text=True)
+                dimensions = __import__('re').search(r'width=(\d+) height=(\d+)',native)
+                assert dimensions and rendered.size == tuple(map(int,dimensions.groups())),(rendered.size,native)
                 assert rendered.convert('L').getextrema()[0] < 100
         checks.append('上游真实 57 页 DjVu 页数/原生目录和首中末页解码')
         original = djvu.read_bytes()

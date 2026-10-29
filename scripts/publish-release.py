@@ -4,14 +4,16 @@
 Set HTTPS_PROXY if needed. Authentication stays in memory and curl stdin,
 never command arguments, files or output. Existing assets are never replaced.
 """
-import argparse,hashlib,json,os,shutil,subprocess
+import argparse,hashlib,json,os,shutil,subprocess,time
 from pathlib import Path
 from urllib.parse import quote
 p=argparse.ArgumentParser();p.add_argument('--checkout',type=Path,required=True);p.add_argument('--version',required=True);p.add_argument('--notes',type=Path,required=True);p.add_argument('assets',type=Path,nargs='+');a=p.parse_args()
 gh=os.environ.get('GH_BIN') or shutil.which('gh');assert gh,'GitHub CLI missing; set GH_BIN'
 repo='puyun1000/UVZ-Reader-Lab-for-Mac';tag='v'+a.version;checkout=a.checkout.resolve()
 def git(*args):return subprocess.check_output(['git','-C',str(checkout),*args],text=True).strip()
-def api(route):return json.loads(subprocess.check_output([gh,'api',route],text=True))
+def api(route):
+ route+=('&' if '?' in route else '?')+'readerlab_verify='+str(time.time_ns())
+ return json.loads(subprocess.check_output([gh,'api',route,'--header','Cache-Control: no-cache'],text=True))
 assert not git('status','--porcelain'),'Commit source changes before publishing'
 assert repo in git('remote','get-url','origin'),'Unexpected repository'
 head=git('rev-parse','HEAD');assert git('rev-parse',tag+'^{commit}')==head,'Version tag differs from current source'

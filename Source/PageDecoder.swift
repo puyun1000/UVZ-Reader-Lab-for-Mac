@@ -9,6 +9,29 @@ private func decodeNativePDG(_ input: UnsafePointer<UInt8>, _ size: Int, _ outpu
 private func decodeZlib(_ input: UnsafePointer<UInt8>, _ size: Int, _ output: UnsafeMutablePointer<UInt8>, _ capacity: Int) -> Int
 
 enum PageDecoder {
+    // ImageIO can repair an incomplete JPEG and still report a complete frame.
+    // Walk marker boundaries so an EXIF thumbnail's EOI cannot mask a cut main scan.
+    private static func completeJPEG(_ data:Data)->Bool {
+        var at=2,entropy=false,scanned=false
+        while at<data.count {
+            if entropy,data[at] != 0xff {at+=1;continue}
+            guard data[at]==0xff else {return false}
+            while at<data.count,data[at]==0xff {at+=1}
+            guard at<data.count else {return false}
+            let marker=data[at];at+=1
+            if marker==0 {if entropy {continue};return false}
+            if (0xd0...0xd7).contains(marker) {if entropy {continue};return false}
+            if marker==0xd9 {return scanned}
+            if marker==1 {continue}
+            guard marker != 0xd8,at+2<=data.count else {return false}
+            let length=Int(data[at])*256+Int(data[at+1])
+            guard length>=2,length<=data.count-at else {return false}
+            at+=length
+            if marker==0xda {entropy=true;scanned=true}
+            else if marker != 0xdc {entropy=false}
+        }
+        return false
+    }
     static func decodedData(_ data: Data) throws -> Data {
         guard data.starts(with: [0x48, 0x48]) else { return data }
         guard data.count >= 3 else { throw ReaderFailure("PDG 头部被截断。") }
@@ -47,10 +70,24 @@ enum PageDecoder {
         }
         guard result == 0, let output else { throw ReaderFailure(String(cString: message)) }
         defer { freeNativePDG(UnsafeMutableRawPointer(output)) }
-        return Data(bytes: output, count: length)
+        let decoded=Data(bytes:output,count:length)
+        // A standard DjVu renamed .pdg is not a SuperStar container. Only the
+        // V2 container establishes provenance; bilevel and compound layers stay standard.
+        if data[2]==2,let properties=DjVuPageProperties.singlePage(decoded),properties.isPhoto {
+            let temporary=FileManager.default.temporaryDirectory.appendingPathComponent("uvz-photo-"+UUID().uuidString+".djvu")
+            defer {try? FileManager.default.removeItem(at:temporary)}
+            try decoded.write(to:temporary)
+            let image=try DjVuTools.render(temporary,page:1,superstarPhoto:properties)
+            let png=NSMutableData()
+            guard let destination=CGImageDestinationCreateWithData(png,"public.png" as CFString,1,nil) else {throw ReaderFailure("照片页图像编码失败。")}
+            CGImageDestinationAddImage(destination,image,[kCGImagePropertyDPIWidth:Double(properties.dpi),kCGImagePropertyDPIHeight:Double(properties.dpi)] as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else {throw ReaderFailure("照片页图像编码失败。")}
+            return png as Data
+        }
+        return decoded
     }
 
-    static func image(_ data: Data, pdfPage: Int? = nil) throws -> CGImage {
+    static func image(_ data: Data, pdfPage: Int? = nil, applyOrientation:Bool = true) throws -> CGImage {
         if data.starts(with:Data("AT&TFORM".utf8)) {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("uvz-page-"+UUID().uuidString+".djvu")
             defer { try? FileManager.default.removeItem(at:url) }
@@ -62,12 +99,19 @@ enum PageDecoder {
             return try image(document, at: pdfPage ?? 0)
         }
         let frame = pdfPage ?? 0
+        if data.starts(with:[0xff,0xd8]), !completeJPEG(data) {throw ReaderFailure("JPEG 页面数据被截断或标记不完整。")}
         guard let source = CGImageSourceCreateWithData(data as CFData, nil), frame >= 0, frame < CGImageSourceGetCount(source),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, frame, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int,
               width > 0, height > 0, width <= 30_000, height <= 30_000, width * height <= 60_000_000,
-              let image = CGImageSourceCreateImageAtIndex(source, frame, nil) else { throw ReaderFailure("页面图像无法读取或尺寸超出限制。") }
+              let image = CGImageSourceCreateImageAtIndex(source, frame, [kCGImageSourceShouldCacheImmediately:true] as CFDictionary) else { throw ReaderFailure("页面图像无法读取或尺寸超出限制。") }
+        guard CGImageSourceGetStatusAtIndex(source,frame) == .statusComplete else {throw ReaderFailure("页面图像不完整或解码失败。")}
+        let orientation=properties[kCGImagePropertyOrientation] as? Int ?? 1
+        if applyOrientation,(2...8).contains(orientation) {
+            guard let transformed=CGImageSourceCreateThumbnailAtIndex(source,frame,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:max(width,height)] as CFDictionary) else {throw ReaderFailure("页面方向标记无法应用。")}
+            return transformed
+        }
         return image
     }
 

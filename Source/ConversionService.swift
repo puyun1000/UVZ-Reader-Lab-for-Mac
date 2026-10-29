@@ -87,7 +87,7 @@ enum ConversionService {
                             context.beginPDFPage([kCGPDFContextMediaBox as String:NSData(bytes:&rect,length:MemoryLayout<CGRect>.size)] as CFDictionary)
                             context.saveGState();context.concatenate(page.getDrawingTransform(.mediaBox,rect:rect,rotate:0,preserveAspectRatio:true));context.drawPDFPage(page);context.restoreGState();context.endPDFPage()
                         } else {
-                            let cg = try book.exportImage(at:index),image = try ExportImage.make(data:try book.exportData(at:index),image:cg,fallbackDPI:options.fallbackDPI,imageIndex:book.exportImageIndex(index))
+                            let cg = try book.exportImage(at:index),image = try ExportImage.make(data:try book.exportData(at:index),image:cg,fallbackDPI:options.fallbackDPI,imageIndex:book.exportImageIndex(index),sourceDPI:book.exportDPI(at:index))
                             var rect = CGRect(origin:.zero,size:image.pageSize)
                             context.beginPDFPage([kCGPDFContextMediaBox as String:NSData(bytes:&rect,length:MemoryLayout<CGRect>.size)] as CFDictionary)
                             let m=image.drawingMatrix;context.saveGState();context.concatenate(CGAffineTransform(a:m[0],b:m[1],c:m[2],d:m[3],tx:m[4],ty:m[5]));context.draw(cg,in:CGRect(x:0,y:0,width:1,height:1));context.restoreGState();context.endPDFPage();lossless += 1;if image.usedFallbackDPI {fallback += 1}
@@ -105,7 +105,7 @@ enum ConversionService {
             let writer = try PDFExportWriter(stage)
             for index in book.pages.indices {
                 try check()
-                let decoded = Result {try autoreleasepool {try ExportImage.make(data:book.exportData(at:index),image:book.exportImage(at:index),fallbackDPI:options.fallbackDPI,imageIndex:book.exportImageIndex(index))}}
+                let decoded = Result {try autoreleasepool {try ExportImage.make(data:book.exportData(at:index),image:book.exportImage(at:index),fallbackDPI:options.fallbackDPI,imageIndex:book.exportImageIndex(index),sourceDPI:book.exportDPI(at:index))}}
                 switch decoded {
                 case .success(let image):
                     // Disk/write failures must abort, even when bad source pages may be skipped.

@@ -2,6 +2,7 @@ import AppKit
 import PDFKit
 import ImageIO
 import CryptoKit
+import Darwin
 
 let supportedBookExtensions = ["zip", "uvz", "pdg", "pdf", "djvu", "djv", "tif", "tiff"]
 func acceptsBookURL(_ url: URL) -> Bool {
@@ -143,6 +144,30 @@ final class LooseBook {
 }
 
 /// DjVuLibre runs as a bundled command-line program, isolated from the reader process.
+struct DjVuPageProperties {
+    let dpi:Int,flags:Int,isPhoto:Bool,isColor:Bool
+    static func singlePage(_ data:Data)->Self? {
+        guard data.count>=16,data.starts(with:Data("AT&TFORM".utf8)),data.subdata(in:12..<16)==Data("DJVU".utf8) else {return nil}
+        func big(_ at:Int)->Int {(0..<4).reduce(0){($0<<8)|Int(data[at+$1])}}
+        let length=big(8);guard length>=4,length<=data.count-12 else {return nil}
+        var at=16,info:Data?,color:Bool?,safe=true
+        let end=12+length,allowed:Set<String>=["INFO","BG44","ANTa","ANTz","TXTa","TXTz"]
+        while at<end {
+            guard at<=end-8 else {return nil}
+            let name=String(decoding:data[at..<at+4],as:UTF8.self),count=big(at+4)
+            guard count<=end-at-8 else {return nil}
+            let start=at+8
+            if name=="INFO" {guard info==nil,count>=10 else{return nil};info=data.subdata(in:start..<start+count)}
+            if name=="BG44",color==nil {guard count>=9,data[start]==0 else{return nil};color=data[start+2]&128==0}
+            if !allowed.contains(name) {safe=false}
+            at=start+count+(count&1)
+        }
+        guard at==end,let info else {return nil}
+        let value=Int(info[6])|Int(info[7])<<8
+        return Self(dpi:(25...6000).contains(value) ? value:300,flags:Int(info[9])&7,isPhoto:safe && color != nil,isColor:color ?? false)
+    }
+}
+
 enum DjVuTools {
     static func run(_ tool: String, _ args: [String], limit: TimeInterval = 35) throws -> Data {
         let process = Process()
@@ -166,10 +191,23 @@ enum DjVuTools {
         process.standardOutput = output; process.standardError = errors
         try process.run()
         let deadline = Date().addingTimeInterval(limit)
-        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.025) }
-        if process.isRunning { process.terminate(); throw ReaderFailure("DjVu 解码超时。") }
+        let maximum=tool == "ddjvu" ? 180_001_024 : 8*1024*1024
+        var tooLarge=false
+        while process.isRunning && Date() < deadline {
+            if ((try? out.resourceValues(forKeys:[.fileSizeKey]).fileSize) ?? 0)>maximum {tooLarge=true;break}
+            Thread.sleep(forTimeInterval:0.025)
+        }
+        if process.isRunning {
+            process.terminate();let grace=Date().addingTimeInterval(0.3)
+            while process.isRunning && Date()<grace {Thread.sleep(forTimeInterval:0.01)}
+            if process.isRunning {kill(process.processIdentifier,SIGKILL)}
+            process.waitUntilExit()
+            throw ReaderFailure(tooLarge ? "DjVu 解码输出超过限制。" : "DjVu 解码超时。")
+        }
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw ReaderFailure("DjVu 无法读取：" + String((String(data: try Data(contentsOf: err), encoding: .utf8) ?? "文件损坏").prefix(500))) }
+        let diagnostic=String(data:try Data(contentsOf:err),encoding:.utf8)?.trimmingCharacters(in:.whitespacesAndNewlines) ?? ""
+        guard process.terminationStatus == 0,tool != "ddjvu" || diagnostic.isEmpty else {throw ReaderFailure("DjVu 无法完整读取："+String((diagnostic.isEmpty ? "页面损坏":diagnostic).prefix(500)))}
+        guard ((try? out.resourceValues(forKeys:[.fileSizeKey]).fileSize) ?? 0)<=maximum else {throw ReaderFailure("DjVu 解码输出超过限制。")}
         return try Data(contentsOf: out)
     }
     static func inspect(_ url: URL) throws -> (Int, [BookChapter]) {
@@ -210,8 +248,15 @@ enum DjVuTools {
         }
         return result
     }
-    static func render(_ url: URL, page: Int, fullResolution: Bool = false) throws -> CGImage {
-        let data = try run("ddjvu", ["-format=ppm", "-page=\(page)"]+(fullResolution ? ["-scale=100"] : ["-size=4000x4000"])+[url.path])
+    static func resolution(_ url:URL,page:Int)throws->Double? {
+        let text=String(decoding:try run("djvused",["-u","-e","select \(page); dump",url.path]),as:UTF8.self)
+        let pattern=try! NSRegularExpression(pattern:"(?m)^\\s*INFO \\[\\d+\\].*?, (\\d+) dpi(?:,|$)")
+        let value=text as NSString
+        guard let match=pattern.firstMatch(in:text,range:NSRange(location:0,length:value.length)),let dpi=Double(value.substring(with:match.range(at:1))),(25...6000).contains(dpi) else {return nil}
+        return dpi
+    }
+    static func render(_ url: URL, page: Int, fullResolution: Bool = true, superstarPhoto:DjVuPageProperties? = nil) throws -> CGImage {
+        let data = try run("ddjvu", ["-format=ppm", "-page=\(page)"]+(fullResolution ? ["-subsample=1"] : ["-size=4000x4000"])+[url.path])
         var at = 0
         func token() -> String? {
             while at < data.count {
@@ -224,7 +269,22 @@ enum DjVuTools {
         guard token() == "P6", let w = token().flatMap(Int.init), let h = token().flatMap(Int.init), token() == "255",
               w > 0, h > 0, w <= (fullResolution ? 30000 : 4000), h <= (fullResolution ? 30000 : 4000), w*h<=60_000_000, at < data.count else { throw ReaderFailure("DjVu 图像输出异常。") }
         if data[at] == 13 && at + 1 < data.count && data[at + 1] == 10 { at += 2 } else { at += 1 }
-        guard data.count - at == w * h * 3, let provider = CGDataProvider(data: data.subdata(in: at..<data.count) as CFData),
+        guard data.count-at==w*h*3 else {throw ReaderFailure("DjVu 图像数据不完整。")}
+        var pixels=data.subdata(in:at..<data.count)
+        if let profile=superstarPhoto {
+            // The source convention is bottom-up BGR before INFO rotation.
+            // A vertical reflection becomes horizontal after a quarter turn.
+            pixels.withUnsafeMutableBytes { buffer in
+                let p=buffer.bindMemory(to:UInt8.self),stride=w*3
+                if profile.flags==5 || profile.flags==6 {
+                    for y in 0..<h {for x in 0..<w/2 {for c in 0..<3 {let a=y*stride+x*3+c,b=y*stride+(w-1-x)*3+c;let v=p[a];p[a]=p[b];p[b]=v}}}
+                } else {
+                    for y in 0..<h/2 {for x in 0..<stride {let a=y*stride+x,b=(h-1-y)*stride+x;let v=p[a];p[a]=p[b];p[b]=v}}
+                }
+                if profile.isColor {for i in Swift.stride(from:0,to:p.count,by:3) {let v=p[i];p[i]=p[i+2];p[i+2]=v}}
+            }
+        }
+        guard let provider = CGDataProvider(data:pixels as CFData),
               let image = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 24, bytesPerRow: w * 3,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: 0), provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else { throw ReaderFailure("DjVu 图像数据不完整。") }
         return image

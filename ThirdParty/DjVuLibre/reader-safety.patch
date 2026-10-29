@@ -1,0 +1,62 @@
+--- a/libdjvu/DjVuFile.cpp
++++ b/libdjvu/DjVuFile.cpp
+@@ -1045,7 +1045,7 @@
+   {
+     if (bg44)
+       G_THROW( ERR_MSG("DjVuFile.dupl_backgrnd") );
+-    desc.format( ERR_MSG("DjVuFile.JPEG2K_bg") );
++    G_THROW("JPEG2000 DjVu background (BG2k) is unsupported; refusing an incomplete page");
+   } 
+   
+   // FG2k (foreground JPEG-2000) Note: JPEG2K bitstream not finalized.
+--- a/libdjvu/DjVuFile.cpp
++++ b/libdjvu/DjVuFile.cpp
+@@ -1053,7 +1053,7 @@
+   {
+     if (fgpm || fgbc)
+       G_THROW( ERR_MSG("DjVuFile.dupl_foregrnd") );
+-    desc.format( ERR_MSG("DjVuFile.JPEG2K_fg") );
++    G_THROW("JPEG2000 DjVu foreground (FG2k) is unsupported; refusing an incomplete page");
+   } 
+   
+   // FGbz (foreground color vector)
+--- a/libdjvu/JPEGDecoder.cpp
++++ b/libdjvu/JPEGDecoder.cpp
+@@ -170,6 +170,18 @@
+   Impl::jpeg_byte_stream_src(&cinfo, bs);
+ 
+   (void) jpeg_read_header(&cinfo, TRUE);
++  if (!cinfo.image_width || !cinfo.image_height ||
++      cinfo.image_width > 30000 || cinfo.image_height > 30000 ||
++      static_cast<unsigned long long>(cinfo.image_width)*cinfo.image_height > 60000000ULL)
++    {
++      jpeg_destroy_decompress(&cinfo);
++      G_THROW("JPEG layer exceeds the supported page pixel limit");
++    }
++  if (cinfo.jpeg_color_space == JCS_CMYK || cinfo.jpeg_color_space == JCS_YCCK)
++    {
++      jpeg_destroy_decompress(&cinfo);
++      G_THROW("CMYK JPEG DjVu layers are unsupported; refusing incorrect colours");
++    }
+ 
+   jpeg_start_decompress(&cinfo);
+   
+--- a/tools/ddjvu.cpp
++++ b/tools/ddjvu.cpp
+@@ -740,6 +740,16 @@
+ dopage(int pageno)
+ {
+   ddjvu_page_t *page;
++  /* Validate INFO before starting raster decoding or allocating its bitmap. */
++  ddjvu_pageinfo_t info;
++  ddjvu_status_t info_status;
++  while ((info_status=ddjvu_document_get_pageinfo(doc,pageno-1,&info)) < DDJVU_JOB_OK)
++    handle(TRUE);
++  if (info_status >= DDJVU_JOB_FAILED)
++    die("Cannot read page dimensions.");
++  if (info.width<=0 || info.height<=0 || info.width>30000 || info.height>30000 ||
++      static_cast<unsigned long long>(info.width)*info.height > 60000000ULL)
++    die("Page dimensions exceed the supported pixel limit.");
+   /* Decode page */
+   timingdata[0] = ticks();
+   if (! (page = ddjvu_page_create_by_pageno(doc, pageno-1)))
