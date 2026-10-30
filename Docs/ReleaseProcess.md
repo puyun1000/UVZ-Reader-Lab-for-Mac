@@ -10,6 +10,8 @@ https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac 。保留仓库既有提交�
 5. 扫描拟提交源代码与分发文件中的凭据，确认没有用户图书或临时测试产物。
 6. 推送源码提交，以同一提交建立版本标签；调用scripts/publish-release.py发布DMG、源码包、校验表和验证摘要。
 7. 下载或检查GitHub附件的SHA-256，核对标签、提交、版本及安装包一致后交付。
+8. 更新Docs/VersionHistory.md、Docs/ReleaseArchive.json和CHANGELOG.md，让每个版本的源码、原始安装包、变化与验证记录都有独立入口。保留旧Release、附件、标签和历史提交。
+9. 清理本地旧版之前，使用scripts/verify-release-archive.py --checkout 本仓库路径 --version 版本号 文件路径…检查公开Release、源码标签和本地文件的远端摘要；并确认历史索引已经同步。未通过则保留本地文件继续补档。没有归档的唯一副本不得删除；缓存清理与版本归档分别处理。
 
 发布脚本要求已有Git检出、干净提交、标签指向当前提交及已推送的主分支，不读取或打印认证令牌；通过GitHub CLI的现有登录发布。首次运行时若未找到gh，可用GH_BIN指定本机安装位置。
 

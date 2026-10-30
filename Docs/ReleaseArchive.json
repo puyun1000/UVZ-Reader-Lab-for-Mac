@@ -1,0 +1,300 @@
+{
+  "auditedOn": "2026-10-30",
+  "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
+  "versions": [
+    {
+      "version": "0.18.0",
+      "status": "original-release",
+      "sourceCommit": "6b4fc15b30c72df25bb913f11c2264d0184a7079",
+      "releaseId": 427761746,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.18.0",
+      "publishedAt": "2026-10-29T11:11:54Z",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.18.0-macOS-arm64.dmg",
+          "bytes": 12433257,
+          "sha256": "289e2093125035b170f8642e462f79e691774f8d81b2b19ce6290a5dc7a4e801",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.18.0/UVZReaderLab-0.18.0-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.18.0-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "befc796112a9eb5a7e9bea479032a2e010ad4f5413d11fbf566459b9c96004c4",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.18.0/UVZReaderLab-0.18.0-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.18.0-verification.json",
+          "bytes": 28847,
+          "sha256": "c598418fcf5f287be0bd0f28453e3206789f354fc4731b42215fb544f2a012f7",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.18.0/UVZReaderLab-0.18.0-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.18.0.zip",
+          "bytes": 19629629,
+          "sha256": "bb6a061ca84d75e2473d48aa051597bb9967051aa79698d6c624d0bc7468e3bb",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.18.0/UVZReaderLab-0.18.0.zip"
+        }
+      ],
+      "releaseNotes": "0.18.0 修复图像解码与转换保真问题。\n\n- DjVu 原始像素改用正确参数，保留 DPI；512×640 不再缩至170×212。\n- 随包静态 JPEG 解码，修复 JPEG 背景静默白页，支持前景合成。\n- 按 V2 PDG 来源和纯照片图层限定修正范围，还原超星彩色照片的方向与红蓝通道，经原版解码实样对照。\n- 补齐 JPEG/TIFF 方向处理，截断 JPEG、超大图层及不支持图层明确报错。\n- 359项功能检查、42项原生界面检查、13项原生预览控制器检查通过。\n\nApple芯片，macOS14或更高。临时签名，未经Apple公证。未替换本机已安装应用；灰度V2照片仍待实书验证。源码、依赖原始源码、许可和修补文件随包提供。\n"
+    },
+    {
+      "version": "0.17.1",
+      "status": "original-release",
+      "sourceCommit": "3beccc895f8766717316cfda13deed8c945b6861",
+      "releaseId": 424986950,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.17.1",
+      "publishedAt": "2026-10-27T03:00:35Z",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.17.1-macOS-arm64.dmg",
+          "bytes": 11008346,
+          "sha256": "1d6aa22b3bd381007980d0436ff13a8f3bc656e9cf26da169f16aa7fe61e900f",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.17.1/UVZReaderLab-0.17.1-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.17.1-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "cbe032100d097c64e7aa9c928b4f509cbc0e6cc1e7d13b37e1f1e64c2c8a9118",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.17.1/UVZReaderLab-0.17.1-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.17.1-verification.json",
+          "bytes": 2192,
+          "sha256": "dd9b7268a1a482e9f26bf2ccd0cdc99ad2bcee12d8b776ab53d13cb3b1c8a539",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.17.1/UVZReaderLab-0.17.1-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.17.1.zip",
+          "bytes": 17104375,
+          "sha256": "6d2c6523a310f47aa4e552bb5a6e2651d79204144e639819ff3073d219959fa4",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.17.1/UVZReaderLab-0.17.1.zip"
+        }
+      ],
+      "releaseNotes": "UVZ Reader Lab 0.17.1\n\n• 修复单行栏框进入编辑后偏下及文字裁切，显示和编辑使用一致的文字区域。\n• PDF、DjVu目录改为文档内原生书签；保留书目信息，迁入并核验旧版目录DAT后再清理，未知用户文件保留。目录与信息同次保存使用一份临时结果提交。\n• 批量规范命名同步保存全部已核对信息，移除只改名的默认选项。\n• 阅读目录栏可拖动分隔线调整宽度，隐藏后恢复当前宽度。\n• 目录长行可横向滚动，页码不折行；无页号分组不附加TAB，末尾页码整理仅处理有效后缀。\n\nApple silicon / macOS 14+\nAd-hoc signed; not Apple-notarized.\n330 functional checks, 48 UI/render cases and 11 native preview checks passed.\n"
+    },
+    {
+      "version": "0.16.0",
+      "status": "original-release",
+      "sourceCommit": "30eb566f4f6812e4ac938d3c54f5a434b60376ca",
+      "releaseId": 424058833,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.16.0",
+      "publishedAt": "2026-10-26T10:09:50Z",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.16.0-macOS-arm64.dmg",
+          "bytes": 10504191,
+          "sha256": "9b0041b296b123b50f3a9c11d90d6ad6f324691110c9142d53fb764a4600ae25",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.16.0/UVZReaderLab-0.16.0-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.16.0-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "f3f582cfd66e1f8ffb14d412aeef53bf7bc1af120af43a11e23092cd7742d0b8",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.16.0/UVZReaderLab-0.16.0-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.16.0-verification.json",
+          "bytes": 2998,
+          "sha256": "e319e506a4e4dcf055a03bddae30add4f2ebe44e9afcbc2744ab833c249f728a",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.16.0/UVZReaderLab-0.16.0-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.16.0.zip",
+          "bytes": 16898701,
+          "sha256": "462975f915f369dbc6c90a8c8be16242489a9ad04caaeee6cd92c8fcb4470d8f",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.16.0/UVZReaderLab-0.16.0.zip"
+        }
+      ],
+      "releaseNotes": "修复缺少信息字典的PDF修改书目信息及保存并改名失败，采用追加信息修订保留原始页面字节，并将校验接入PDF转换。新增部分旧版及预处理PDG、内嵌DjVu和JPEG2000支持；单行栏框文字在显示及编辑状态上下居中。\n\n验证：312项功能、31项界面、11项原生预览控制器检查通过；32个上游PDG样本实际渲染通过。415页真实PDF在临时副本上核对，来源保持不变。系统多预览扩展并存时，本轮新版访达回调未能确认，未计为通过。详细来源、兼容边界及验证摘要见Docs/Decoder-0.3.0.md和Docs/Validation-0.16.0.md。\n\n适用Apple芯片Mac、macOS14以上，实测macOS27.2。临时签名，未通过Apple开发者签名或公证。应用名称和标识保留；安装时退出旧版后拖到应用程序替换。\n\n本版基于0.15.1继续开发，保留DjVu中文路径修复和既有历史。本项目不附带或运行Windows解码器。\n"
+    },
+    {
+      "version": "0.15.1",
+      "status": "original-release",
+      "sourceCommit": "cc4ef1e9b93610812729ae78d1cdc5309b455245",
+      "releaseId": 423748037,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.15.1",
+      "publishedAt": "2026-10-26T00:21:41Z",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.15.1-macOS-arm64.dmg",
+          "bytes": 8640807,
+          "sha256": "132fec82417910853236bd9aa6cabde04751814132be75a2dcc5d0c988cabb5c",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.1/UVZReaderLab-0.15.1-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.15.1-SHA256SUMS.txt",
+          "bytes": 376,
+          "sha256": "d47746fe12cfcb7e212d303a626ac9b71a1c3960d0c4be45748703a32885b09c",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.1/UVZReaderLab-0.15.1-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.15.1-source.zip",
+          "bytes": 7476967,
+          "sha256": "458cd67351f65392260092e1175329d1ddad41279dfd8355a40e92435dc0dc80",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.1/UVZReaderLab-0.15.1-source.zip"
+        },
+        {
+          "name": "UVZReaderLab-0.15.1.zip",
+          "bytes": 8207516,
+          "sha256": "a2d51ae6b99e69b4df79117a0bf611d3eb13d00c3dbdad11019352c9296bdc8f",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.1/UVZReaderLab-0.15.1.zip"
+        },
+        {
+          "name": "Validation-0.15.1.md",
+          "bytes": 1372,
+          "sha256": "8e577db4c89b5c416a344c5b8733e47d439072bc5cb0bdabdbc1cb93e0774586",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.1/Validation-0.15.1.md"
+        }
+      ],
+      "releaseNotes": "# UVZ Reader Lab 0.15.1\n\n修复 Finder 启动时缺少 UTF-8 locale 导致 DjVuLibre 无法读取中文目录或文件名的问题。新增 `LC_ALL=C` 环境下的中文路径回归检查，覆盖打开、页面渲染和信息保存。\n"
+    },
+    {
+      "version": "0.15.0",
+      "status": "original-release",
+      "sourceCommit": "7fdd8bf90e3b5c94400c84d095da8483d6dadd4f",
+      "releaseId": 423365951,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.15.0",
+      "publishedAt": "2026-10-25T11:46:52Z",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.15.0-macOS-arm64.dmg",
+          "bytes": 8267394,
+          "sha256": "598ab4f114dcaac01f054fc053574b7abb62d2e78b3f5447f42b63cf6eb3968c",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.0/UVZReaderLab-0.15.0-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.15.0-SHA256SUMS.txt",
+          "bytes": 192,
+          "sha256": "eafe203181c36595cbe60be6927a4e905b48491b0ae1cd848d11c9a29327276e",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.0/UVZReaderLab-0.15.0-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.15.0.zip",
+          "bytes": 15685375,
+          "sha256": "45670c8ee9ab6dc66f2ffc55806f21d4a381cc6b640030e6bf2b599118d3955a",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.0/UVZReaderLab-0.15.0.zip"
+        },
+        {
+          "name": "Validation-0.15.0.md",
+          "bytes": 2149,
+          "sha256": "a05ff4b160404b15d5093ec62bd94f2ada6ada16715783690b4214629c8aebf9",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.15.0/Validation-0.15.0.md"
+        }
+      ],
+      "releaseNotes": "转换工作台采用上下卡片布局，常用阅读操作恢复为直接按钮；右键菜单统一中文，并可对所选文字进行转换。\n\n- 转换：拖入区域、图书及书目摘要、完整性预览、输出设置和进度分层排列；长目标名可换行核对，不再重复显示输出选项入口。\n- 阅读：宽度、高度、整页均可单击切换；首页单独、从右至左、原色／反色／跟随系统直接可选，可将所选配色设为默认。未设置时使用原色。\n- 文字：繁简、全半角、大小写及中英文标点转换，可编辑内容支持撤销，只读内容转换后复制；页面右键增加常用阅读及编辑操作。\n- 帮助：按阅读、识别、图书信息、目录编码、转换及系统集成重排，增加层级序号。\n- 本次一并同步此前本机版本的原生信息保存、多语言OCR、批量命名、PDF转换和多页UVZ预览改进。保留原仓库历史及第三方署名，后续新版沿用仓库发布流程。\n\n已通过288项功能、76项界面和11项预览控制器检查；系统确认加载0.15.0预览扩展。实书190页JPEG压缩字节逐张保留，28条PDF目录定位核对正确，来源内容与日期未变。\n\nApple Silicon（arm64），macOS14及以上；本次实机环境为macOS27.2，未覆盖所有支持系统版本。当前使用ad-hoc临时签名，未经Apple公证。\n\n下载DMG，退出旧版后将应用拖入“应用程序”替换。附件含安装包、完整源码包、SHA-256校验表和验证摘要；不包含用户图书或私人截图。DjVuLibre对应源码及许可证随应用和仓库提供。\n"
+    },
+    {
+      "version": "0.11.0",
+      "status": "original-release",
+      "sourceCommit": "516d30d561ba643ad03220be26bb29533e6f177c",
+      "releaseId": 417030176,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.11.0",
+      "publishedAt": "2026-10-19T07:49:27Z",
+      "assets": [
+        {
+          "name": "SHA256SUMS.txt",
+          "bytes": 182,
+          "sha256": "75c19803c2ae55a253ea3dfa9931cdbabd2558df3ba4788c880109d87debf883",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.11.0/SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.11.0-macOS-arm64.dmg",
+          "bytes": 7942858,
+          "sha256": "ad6076361d63138cd1c060ec514acc9efd4ee4a6bbffa38acea6564a57380ec4",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.11.0/UVZReaderLab-0.11.0-macOS-arm64.dmg"
+        },
+        {
+          "name": "VALIDATION.md",
+          "bytes": 1739,
+          "sha256": "32b09bcaad63c6af27aea5f19c4366daa31f302705b0d1cff5123d5f3848398e",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.11.0/VALIDATION.md"
+        }
+      ],
+      "releaseNotes": "UVZ Reader Lab 0.11.0（构建 12），Apple Silicon / macOS 14+。\n\n原生电子书阅读、目录编辑、本机 OCR、CIP 核对与人工确认后的批量规范命名。下载 DMG，将应用复制到“应用程序”。\n\n本次在干净副本中成功构建；现有 DMG 内主程序、两个 DjVu 工具与两个 Quick Look 扩展均与干净构建逐字节一致，功能检查共 187 项通过。DMG 完整性和应用签名检查通过。\n\n当前为 ad-hoc 签名，未完成 Apple 公证；未在全部支持系统版本上实机验证，OCR 仍需人工核对。完整检查范围见附件 VALIDATION.md。\n\n附件含原始已验证 DMG、SHA-256 校验表和核查记录。DjVuLibre 对应源码、许可证及构建脚本同时包含在应用与仓库源码中。GitHub 提供此标签的源码 ZIP / tar.gz。\n\n对应源码提交：`516d30d561ba643ad03220be26bb29533e6f177c`。\n\n开发参考与致谢：阿虚开发的 macOS「UVZ阅读器」是本项目的开发基础和首要参考；亦感谢老马（马健）的 UnicornViewer、PdgCntEditor、PdgRenamer、PdgThumbViewer 等 Windows 工具提供设计思路。老马作者主页：https://www.cnblogs.com/stronghorse/ 。据项目维护者反馈，阿虚的应用已更新至 0.2.1；本项目尚未对该版本逐项验证。详细说明见仓库 README 与用户指南。\n\n此致谢补充对应 main 分支提交：`8a4bda8`；v0.11.0 标签和现有下载文件未变。\n"
+    },
+    {
+      "version": "0.17.0",
+      "status": "source-only",
+      "sourceCommit": "0459faafa33fbbd7c00ff353b7a328825c841879",
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.17.0",
+      "originalInstallerAvailable": false,
+      "releaseId": 428598755,
+      "publishedAt": "2026-10-30T02:40:13Z",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.17.0-source-archive-SHA256SUMS.txt",
+          "bytes": 105,
+          "sha256": "a04ab8117e90619a922d4e475c5e4bbe618d3602d900aff3fbdb3649bfb82bda",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.17.0/UVZReaderLab-0.17.0-source-archive-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.17.0-source-archive.zip",
+          "bytes": 7522688,
+          "sha256": "5aabfafb554ecd980c1767f60e9aa97893d27ad4dfc458c19157daf62adfb966",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.17.0/UVZReaderLab-0.17.0-source-archive.zip"
+        }
+      ],
+      "releaseNotes": "0.17.0 历史源码归档（补档日期2026-10-30）\n\n · 2026.10.27\n\n• 修复单行栏框进入编辑后偏下及文字裁切，显示和编辑使用一致的文字区域。\n• PDF、DjVu目录改为文档内原生书签；保留书目信息，迁入并核验旧版目录DAT后再清理，未知用户文件保留。目录与信息同次保存使用一份临时结果提交。\n• 批量规范命名同步保存全部已核对信息，移除只改名的默认选项。\n• 阅读目录栏可拖动分隔线调整宽度，隐藏后恢复当前宽度。\n• 目录长行可横向滚动，页码不折行；无页号分组不附加TAB，末尾页码整理仅处理有效后缀。\n\n\n原始源码提交：`0459faafa33fbbd7c00ff353b7a328825c841879`。源码包从现有v0.17.0标签直接导出，文件与标签一致，没有重新构建应用。\n\n原始安装包未找到，不能提供原始DMG；此阶段已由0.17.1修正PDF信息字典类型问题并替代，日常使用请选最新版。\n\n此为历史补档，不设为最新版本。参见[完整版本历史](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/blob/main/Docs/VersionHistory.md)。\n"
+    },
+    {
+      "version": "0.14.0",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.13.0",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.12.0",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.10.0",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.9.1",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.9.0",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.8.0",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.7.0",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.6.0",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    },
+    {
+      "version": "0.5.0 及早期实验版本",
+      "status": "notes-only",
+      "originalInstallerAvailable": false,
+      "sourceSnapshotAvailable": false
+    }
+  ]
+}
