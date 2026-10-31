@@ -139,3 +139,51 @@ enum ChineseMenus {
         }
     }
 }
+
+/// A reusable, non-modal find panel; search selection never changes replacement scope.
+final class ContentsFindWindow: NSObject {
+    let window = ChineseWindow(contentRect:NSRect(x:0,y:0,width:560,height:220),styleMask:[.titled,.closable],backing:.buffered,defer:false)
+    weak var text: NSTextView?
+    let find = CenteredTextField(), replacement = CenteredTextField()
+    let regex = NSButton(checkboxWithTitle:"正则表达式",target:nil,action:nil)
+    let selectionOnly = NSButton(checkboxWithTitle:"仅替换打开面板时的选区",target:nil,action:nil)
+    let note = CenteredTextField(labelWithString:"替换全部默认作用于当前目录全文；支持撤销。")
+    var scope = NSRange(location:0,length:0)
+    init(text:NSTextView) {
+        self.text=text;super.init();window.title="查找与替换";window.isReleasedWhenClosed=false
+        find.placeholderString="输入查找内容";replacement.placeholderString="输入替换内容（可为空）"
+        let grid=NSGridView(views:[[CenteredTextField(labelWithString:"查找"),find],[CenteredTextField(labelWithString:"替换为"),replacement]])
+        grid.rowSpacing=12;grid.columnSpacing=12
+        let next=NSButton(title:"下一个",target:self,action:#selector(nextMatch)),all=NSButton(title:"全部替换",target:self,action:#selector(replaceAll))
+        next.bezelStyle = .rounded;all.bezelStyle = .rounded;next.keyEquivalent="\r"
+        let options=NSStackView(views:[regex,selectionOnly]);options.spacing=18
+        let buttons=NSStackView(views:[NSView(),next,all]);buttons.spacing=8
+        note.font = .systemFont(ofSize:11);note.textColor = .secondaryLabelColor
+        let stack=NSStackView(views:[grid,options,note,buttons]);stack.orientation = .vertical;stack.alignment = .leading;stack.spacing=14
+        let host=NSView();window.contentView=host;host.addSubview(stack);stack.translatesAutoresizingMaskIntoConstraints=false
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo:host.leadingAnchor,constant:20),stack.trailingAnchor.constraint(equalTo:host.trailingAnchor,constant:-20),stack.topAnchor.constraint(equalTo:host.topAnchor,constant:20),grid.widthAnchor.constraint(equalTo:stack.widthAnchor),buttons.widthAnchor.constraint(equalTo:stack.widthAnchor)])
+    }
+    func show(on parent:NSWindow) {scope=text?.selectedRange() ?? NSRange(location:0,length:0);selectionOnly.state = .off;selectionOnly.isEnabled=scope.length>0;NativeDialog.present(window,on:parent);window.makeFirstResponder(find)}
+    func expression() throws -> NSRegularExpression {
+        guard !find.stringValue.isEmpty else {throw ReaderFailure("请输入查找内容。")}
+        return try NSRegularExpression(pattern:regex.state == .on ? find.stringValue:NSRegularExpression.escapedPattern(for:find.stringValue))
+    }
+    @objc func nextMatch() {
+        guard let text else{return}
+        do {let e=try expression(),s=text.string as NSString,start=min(s.length,NSMaxRange(text.selectedRange()))
+            guard let m=e.firstMatch(in:text.string,range:NSRange(location:start,length:s.length-start)) ?? e.firstMatch(in:text.string,range:NSRange(location:0,length:start)) else {note.stringValue="未找到匹配内容。";return}
+            text.setSelectedRange(m.range);text.scrollRangeToVisible(m.range);note.stringValue="已找到，可继续查找或全部替换。"
+        } catch {note.stringValue=error.localizedDescription}
+    }
+    @objc func replaceAll() {
+        guard let text else{return}
+        do {let e=try expression(),s=text.string as NSString
+            let range=selectionOnly.state == .on ? scope:NSRange(location:0,length:s.length)
+            guard NSMaxRange(range)<=s.length else {throw ReaderFailure("选区已变化，请重新打开面板。")}
+            let old=s.substring(with:range),r=NSRange(location:0,length:(old as NSString).length),count=e.numberOfMatches(in:old,range:r)
+            guard count>0 else {note.stringValue="未找到匹配内容。";return}
+            let value=e.stringByReplacingMatches(in:old,range:r,withTemplate:regex.state == .on ? replacement.stringValue:NSRegularExpression.escapedTemplate(for:replacement.stringValue))
+            text.insertText(value,replacementRange:range);scope=NSRange(location:range.location,length:(value as NSString).length);note.stringValue="已替换 \(count) 处，可在目录编辑窗口撤销。"
+        } catch {note.stringValue=error.localizedDescription}
+    }
+}

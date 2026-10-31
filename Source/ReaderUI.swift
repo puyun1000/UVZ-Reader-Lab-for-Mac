@@ -28,6 +28,8 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private var sidebarWidth:NSLayoutConstraint!
     private var preferredSidebarWidth:CGFloat=260
     private let note = CenteredTextField(wrappingLabelWithString: "")
+    private var imageWindows: [PageImageWindow] = []
+    private var pageDetails: [Int:String] = [:]
     private let status = CenteredTextField(labelWithString: "打开电子书，开始阅读")
     private let ocrStatus = CenteredTextField(labelWithString: "")
     let pageField = CenteredTextField(string: "1")
@@ -287,7 +289,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         reopenState = savedState
         requestedURL = url.standardizedFileURL
         let token = session
-        status.stringValue = "正在读取书籍…"; document.message = "正在建立页面与目录索引…"
+        pageDetails.removeAll();status.stringValue = "正在读取书籍…"; document.message = "正在建立页面与目录索引…"
         queue.addOperation { [weak self] in
             let result = Result { try BookArchive(url: url) }
             DispatchQueue.main.async {
@@ -571,7 +573,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         outline.isEnabled = !window.hasDocumentDialog
         if window.hasDocumentDialog { readingControls.forEach { $0.isEnabled = false }; renameButton.isEnabled = false }
         scroll.continuous = state.continuous; scroll.wheelTurnsPages = state.wheelTurnsPages
-        if let book { status.stringValue = "\(book.pages[state.page].name) · \(book.pages[state.page].label) · \(state.page + 1) / \(book.pages.count)" }
+        if let book { status.stringValue = "\(book.pages[state.page].name) · \(book.pages[state.page].label) · \(state.page + 1) / \(book.pages.count)" + (pageDetails[state.page].map {" · "+$0} ?? "") }
     }
     private var inverted: Bool { state.color == 2 || (state.color == 0 && document.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) }
     private func imageKey(_ index: Int) -> NSString { "\(index):\(state.rotation):\(state.crop):\(inverted)" as NSString }
@@ -619,19 +621,21 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
             let token = session, epoch = revision, key = imageKey(index), rotation = state.rotation, crop = state.crop, invert = inverted
             queue.addOperation { [weak self] in
                 guard let self else { return }
-                let result = Result { () throws -> (NSImage, NSImage) in
+                let result = Result { () throws -> (NSImage, NSImage, String) in
                     let raw: NSImage
                     if let cached = self.rawCache.object(forKey: NSNumber(value: index)) { raw = cached }
                     else { let cg = try book.pageImage(at: index); raw = NSImage(cgImage: cg, size: CGSize(width: cg.width, height: cg.height)) }
                     guard let cg = raw.cgImage(forProposedRect: nil, context: nil, hints: nil) else { throw ReaderFailure("页面图像不可用。") }
                     let prepared = try PageImageFactory.prepare(cg, rotation: rotation, crop: crop, invert: invert)
-                    return (raw, NSImage(cgImage: prepared, size: CGSize(width: prepared.width, height: prepared.height)))
+                    return (raw, NSImage(cgImage: prepared, size: CGSize(width: prepared.width, height: prepared.height)),book.pageDescription(at:index,width:cg.width,height:cg.height))
                 }
                 DispatchQueue.main.async {
                     guard self.session == token, self.revision == epoch else { return }
                     self.pending.remove(index)
                     switch result {
-                    case .success(let (raw, prepared)):
+                    case .success(let (raw, prepared, detail)):
+                        self.pageDetails[index]=detail
+                        if index==self.state.page {self.status.stringValue="\(book.pages[index].name) · \(book.pages[index].label) · \(index+1) / \(book.pages.count) · \(detail)";self.status.toolTip=self.status.stringValue}
                         self.rawCache.setObject(raw, forKey: NSNumber(value: index), cost: Int(raw.size.width * raw.size.height * 4))
                         self.preparedCache.setObject(prepared, forKey: key, cost: Int(prepared.size.width * prepared.size.height * 4))
                         if self.sizes[index] != raw.size { self.sizes[index] = raw.size; self.relayout(preservePosition: true) }
@@ -751,8 +755,20 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         func add(_ title:String,_ action:Selector) {let item=NSMenuItem(title:title,action:action,keyEquivalent:"");item.target=self;item.tag=index ?? state.page;menu.addItem(item)}
         add("上一页",#selector(previousPage));add("下一页",#selector(nextPage));menu.addItem(.separator())
         add("适合宽度",#selector(fitWidth));add("适合高度",#selector(fitHeight));add("适合整页",#selector(fitWhole));add("原始大小",#selector(actualSize));menu.addItem(.separator())
-        add("复制页面图像",#selector(copyContextPage));add("框选识别目录…",#selector(recognizeContextRegion));menu.addItem(.separator())
+        add("单独查看与导出图像…",#selector(viewPageImage));add("复制页面图像",#selector(copyContextPage));add("框选识别目录…",#selector(recognizeContextRegion));menu.addItem(.separator())
         add("编辑目录…",#selector(editBook));add("书籍信息与重命名…",#selector(editInfo));add("复制图书路径",#selector(copyBookPath));return menu
+    }
+    @objc private func viewPageImage(_ item:NSMenuItem) {
+        guard let book else{return}
+        let index=item.tag,token=session
+        queue.addOperation { [weak self] in
+            let result=Result {try book.pageImage(at:index)}
+            DispatchQueue.main.async {guard let self,self.session==token else{return}
+                do {let cg=try result.get(),controller=PageImageWindow(image:cg,title:book.pages[index].name)
+                    self.imageWindows.append(controller);controller.onClose = { [weak self,weak controller] in self?.imageWindows.removeAll {$0 === controller} };controller.show()
+                } catch {self.status.stringValue=error.localizedDescription}
+            }
+        }
     }
     @objc private func copyContextPage(_ item:NSMenuItem) {if let image=tiles[item.tag]?.imageView.image {NSPasteboard.general.clearContents();NSPasteboard.general.writeObjects([image])}}
     @objc private func recognizeContextRegion(_ item:NSMenuItem) {jump(item.tag);recognizeRegion()}

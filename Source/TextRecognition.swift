@@ -1,5 +1,6 @@
 import AppKit
 import Vision
+import CoreImage
 
 struct RecognitionOptions {
     var language: String
@@ -47,8 +48,32 @@ enum TextRecognition {
             return .init(text:value.string,box:box,confidence:value.confidence,vertical:orientation != .up)
         }
     }
+    /// Estimate page contrast from a bounded thumbnail; only OCR gets adjusted pixels.
+    static func enhanced(_ image:CGImage)->CGImage? {
+        let w=256,h=max(1,Int(Double(image.height)*256/Double(image.width)))
+        guard h<=4096 else{return nil}
+        var pixels=[UInt8](repeating:255,count:w*h)
+        let ok=pixels.withUnsafeMutableBytes { ptr -> Bool in
+            guard let c=CGContext(data:ptr.baseAddress,width:w,height:h,bitsPerComponent:8,bytesPerRow:w,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:0) else{return false}
+            c.draw(image,in:CGRect(x:0,y:0,width:w,height:h));return true
+        }
+        guard ok else{return nil}
+        var histogram=[Int](repeating:0,count:256);for p in pixels {histogram[Int(p)]+=1}
+        var total=0,low=0,high=255
+        for i in 0..<256 {total+=histogram[i];if total>max(1,pixels.count/1000){low=i;break}}
+        total=0;for i in (0..<256).reversed(){total+=histogram[i];if total>max(1,pixels.count/1000){high=i;break}}
+        guard high-low>=8,low>100 else{return nil}
+        let scale=255.0/Double(high-low),bias = -Double(low)/Double(high-low)
+        let input=CIImage(cgImage:image).applyingFilter("CIColorControls",parameters:[kCIInputSaturationKey:0])
+        let adjusted=input.applyingFilter("CIColorMatrix",parameters:["inputRVector":CIVector(x:scale,y:0,z:0,w:0),"inputGVector":CIVector(x:0,y:scale,z:0,w:0),"inputBVector":CIVector(x:0,y:0,z:scale,w:0),"inputBiasVector":CIVector(x:bias,y:bias,z:bias,w:0)])
+        return CIContext(options:[.cacheIntermediates:false]).createCGImage(adjusted,from:input.extent)
+    }
     private static func refined(_ image: CGImage,options: RecognitionOptions) throws -> [PageInspection.EvidenceLine] {
         var lines = try request(image,options:options),count = 0
+        if let enhanced=enhanced(image),let retry=try? request(enhanced,options:options) {
+            func score(_ values:[PageInspection.EvidenceLine])->Double {values.reduce(0){$0+Double($1.text.filter {$0.isLetter || $0.isNumber}.count)*Double($1.confidence)}}
+            if score(retry)>score(lines)*1.05 {lines=retry}
+        }
         for index in lines.indices {
             let line = lines[index]
             guard count<8,line.confidence<0.35,line.text.count>=4,line.box.width>line.box.height*2 else { continue }

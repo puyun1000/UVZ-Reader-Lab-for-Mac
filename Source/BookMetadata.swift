@@ -86,6 +86,9 @@ enum CopyrightMetadata {
     }
     static func candidates(_ book: BookArchive, currentPage: Int? = nil) -> [Int] {
         if let currentPage { return [min(book.pages.count - 1, max(0, currentPage))] }
+        if book.url.pathExtension.lowercased() == "pdf" {
+            return Array(Set(book.pages.indices.prefix(10)).union(book.pages.indices.suffix(10))).sorted()
+        }
         let copyright = book.pages.indices.filter { book.pages[$0].key.group == 2 }
         if !copyright.isEmpty { return Array(copyright.prefix(4)) }
         return Array(0..<min(6, book.pages.count))

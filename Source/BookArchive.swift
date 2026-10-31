@@ -188,6 +188,14 @@ final class BookArchive {
         pdfDocuments.countLimit = 4
     }
 
+    func pageDescription(at index:Int,width:Int,height:Int) -> String {
+        let data = try? (loose.map {try $0.originalPageData(at:index)} ?? Self.read(entries[pages[index].entry],from:bytes))
+        var type=url.pathExtension.uppercased()
+        if let data,data.starts(with:[0x48,0x48]),data.count>=16 {
+            type = "PDG V\(data[2]) · 编码 \(String(format:"%02X",data[2]==1 ? data[10]:data[15]))H"
+        }
+        return "\(type) · \(width) × \(height) 像素"
+    }
     func pageData(at index: Int) throws -> Data {
         guard pages.indices.contains(index) else { throw ReaderFailure("页码超出范围。") }
         if let loose { return try loose.pageData(at: index) }

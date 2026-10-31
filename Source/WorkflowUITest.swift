@@ -47,6 +47,16 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 try check(text.frame.width>text.enclosingScrollView!.contentSize.width,"长行扩展文档宽度并可横向滚动")
                 text.scrollRangeToVisible(NSRange(location:position,length:1))
                 try check(text.enclosingScrollView!.contentView.bounds.minX>0,"可横向滚动到末尾页码")
+                text.string="甲 甲 甲";text.setSelectedRange(NSRange(location:0,length:0))
+                let find=ContentsFindWindow(text:text);find.find.stringValue="甲";find.replacement.stringValue="乙";find.nextMatch();find.replaceAll()
+                try check(text.string=="乙 乙 乙","查找选中一处后，全部替换仍修改全文三处")
+                text.string="甲 甲 甲";text.setSelectedRange(NSRange(location:0,length:1));find.show(on:editor!.window);find.selectionOnly.state = .on;find.replaceAll()
+                try check(text.string=="乙 甲 甲","明确选择仅选区时，范围不扩展")
+                find.window.close()
+                let cg=try reader.book!.pageImage(at:0),imageWindow=PageImageWindow(image:cg,title:"测试页面")
+                imageWindow.show();imageWindow.larger();imageWindow.fit()
+                try check(imageWindow.canvas.imageRect.width>0,"单页图像窗口能显示、缩放并恢复整页")
+                imageWindow.window.close()
                 editor!.window.close();editor=nil
                 batch=BatchNamingWindow();batch!.useOCR.state = .off;batch!.loadFolder(folder);stage=2
             case 2:

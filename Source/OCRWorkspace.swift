@@ -109,7 +109,7 @@ final class RegionCanvas: NSView {
 }
 
 /// A separate overlay above the page image keeps the selection visible without intercepting input.
-private final class RegionOutline: NSView {
+final class RegionOutline: NSView {
     weak var canvas: RegionCanvas?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -313,5 +313,38 @@ enum ContentsOCRText {
         let prefix = insertion > 0 && value.substring(with: NSRange(location: insertion-1,length: 1)) != "\n" ? "\n" : ""
         let suffix = insertion < value.length ? "\n" : ""
         return (prefix+text+suffix,NSRange(location: insertion,length: 0))
+    }
+}
+
+/// Source pixels are exported losslessly; reading crop/colour never mutates them.
+final class PageImageWindow:NSObject,NSWindowDelegate {
+    let window=ChineseWindow(contentRect:NSRect(x:0,y:0,width:880,height:760),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
+    let canvas=RegionCanvas(frame:.zero),scroll=NSScrollView(),image:CGImage
+    let note=CenteredTextField(labelWithString:"拖动框选局部；导出保留源像素，格式为PNG。")
+    var zoom:Double=1,onClose:(()->Void)?
+    init(image:CGImage,title:String) {
+        self.image=image;super.init();window.title="单页图像 — "+title;window.isReleasedWhenClosed=false;window.delegate=self;window.minSize=NSSize(width:620,height:450)
+        let outline=RegionOutline();outline.canvas=canvas;canvas.addSubview(outline);outline.frame=canvas.bounds;outline.autoresizingMask=[.width,.height]
+        scroll.documentView=canvas;scroll.hasHorizontalScroller=true;scroll.hasVerticalScroller=true
+        func button(_ title:String,_ selector:Selector)->NSButton {let b=NSButton(title:title,target:self,action:selector);b.bezelStyle = .rounded;return b}
+        let tools=NSStackView(views:[button("缩小",#selector(smaller)),button("放大",#selector(larger)),button("适合整页",#selector(fit)),NSView(),button("导出整页…",#selector(saveWhole)),button("导出框选…",#selector(saveSelection))]);tools.spacing=8
+        let root=NSStackView(views:[tools,scroll,note]);root.orientation = .vertical;root.alignment = .leading;root.spacing=10
+        let host=NSView();window.contentView=host;host.addSubview(root);root.translatesAutoresizingMaskIntoConstraints=false
+        NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo:host.leadingAnchor,constant:16),root.trailingAnchor.constraint(equalTo:host.trailingAnchor,constant:-16),root.topAnchor.constraint(equalTo:host.topAnchor,constant:16),root.bottomAnchor.constraint(equalTo:host.bottomAnchor,constant:-16),scroll.widthAnchor.constraint(equalTo:root.widthAnchor),tools.widthAnchor.constraint(equalTo:root.widthAnchor),scroll.heightAnchor.constraint(greaterThanOrEqualToConstant:300)])
+        canvas.onSelected = { [weak self] in guard let self,let r=self.canvas.selection,let px=try? RegionGeometry.pixels(r,width:image.width,height:image.height) else{return};self.note.stringValue="框选 \(Int(px.width)) × \(Int(px.height)) 像素" }
+    }
+    func show(){window.center();window.makeKeyAndOrderFront(nil);window.contentView?.layoutSubtreeIfNeeded();refresh()}
+    func refresh(){canvas.configure(image,viewport:scroll.contentSize,zoom:zoom)}
+    func windowDidResize(_ notification:Notification){refresh()}
+    func windowWillClose(_ notification:Notification){onClose?()}
+    @objc func smaller(){zoom=max(0.1,zoom/1.25);refresh()}
+    @objc func larger(){zoom=min(12,zoom*1.25);refresh()}
+    @objc func fit(){zoom=1;refresh()}
+    @objc func saveWhole(){save(image)}
+    @objc func saveSelection(){do {guard let r=canvas.selection else {throw ReaderFailure("请先在图像上拖出框选范围。")};save(try RegionGeometry.crop(image,rect:r))} catch {note.stringValue=error.localizedDescription}}
+    func save(_ value:CGImage){let panel=NSSavePanel();panel.nameFieldStringValue="页面.png";panel.allowedContentTypes=[.png]
+        panel.beginSheetModal(for:window){[weak self] response in guard response == .OK,let url=panel.url else{return}
+            do {let bitmap=NSBitmapImageRep(cgImage:value);guard let data=bitmap.representation(using:.png,properties:[:]) else {throw ReaderFailure("PNG编码失败。")};try data.write(to:url,options:.atomic);self?.note.stringValue="已导出 \(value.width) × \(value.height) 像素"} catch {self?.note.stringValue=error.localizedDescription}
+        }
     }
 }

@@ -215,7 +215,9 @@ enum BatchNaming {
                 }
                 if book.pages.filter({$0.key.group == 1}).count > 1 { notes.append("多张书名页，需核对卷册或合订信息") }
             }
-            if selected.isEmpty { selected = Array(book.pages.indices.prefix(6)).map { ($0,"待判定页") } }
+            if url.pathExtension.lowercased() == "pdf" {
+                selected = Array(Set(book.pages.indices.prefix(10)).union(book.pages.indices.suffix(10))).sorted().map { ($0,"待判定页") }
+            } else if selected.isEmpty { selected = Array(book.pages.indices.prefix(6)).map { ($0,"待判定页") } }
             else if !selected.contains(where:{$0.1 == "版权页"}) {
                 for index in book.pages.indices.prefix(8) where !selected.contains(where:{$0.0 == index}) { selected.append((index,"待判定页")) }
             }

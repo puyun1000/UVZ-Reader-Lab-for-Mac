@@ -356,30 +356,10 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
             } catch { self.message.stringValue = error.localizedDescription; self.message.textColor = .systemRed }
         }
     }
+    private var findWindow: ContentsFindWindow?
     @objc func findReplace() {
-        let alert = NSAlert(); alert.messageText = "查找与替换目录文本"; alert.informativeText = "查找会选中下一个匹配；替换全部作用于选中区域，无选择时作用于全文。支持正则表达式，替换中可用 $1 等分组。"
-        let find = CenteredTextField(), replace = CenteredTextField(), regex = NSButton(checkboxWithTitle: "正则表达式", target: nil, action: nil)
-        find.placeholderString = "查找内容"; replace.placeholderString = "替换为"
-        let panel = NSStackView(views: [find, replace, regex]); panel.orientation = .vertical; panel.alignment = .leading; panel.spacing = 8; panel.frame = NSRect(x: 0, y: 0, width: 440, height: 94)
-        find.widthAnchor.constraint(equalTo: panel.widthAnchor).isActive = true; replace.widthAnchor.constraint(equalTo: panel.widthAnchor).isActive = true
-        alert.accessoryView = panel; alert.addButton(withTitle: "查找下一个"); alert.addButton(withTitle: "替换全部"); alert.addButton(withTitle: "取消")
-        NativeDialog.alert(alert, on: window) { [weak self] response in
-            guard let self, response != .alertThirdButtonReturn, !find.stringValue.isEmpty else { return }
-            do {
-                let pattern = regex.state == .on ? find.stringValue : NSRegularExpression.escapedPattern(for: find.stringValue), expression = try NSRegularExpression(pattern: pattern)
-                let source = self.textView.string as NSString, selection = self.textView.selectedRange()
-                if response == .alertFirstButtonReturn {
-                    let start = NSMaxRange(selection), remaining = NSRange(location: start, length: source.length - start)
-                    guard let match = expression.firstMatch(in: self.textView.string, range: remaining) ?? expression.firstMatch(in: self.textView.string, range: NSRange(location: 0, length: start)) else { throw ReaderFailure("未找到匹配内容。") }
-                    self.window.makeFirstResponder(self.textView); self.textView.setSelectedRange(match.range); self.textView.scrollRangeToVisible(match.range)
-                } else {
-                    let range = selection.length > 0 ? selection : NSRange(location: 0, length: source.length), old = source.substring(with: range)
-                    let replacement = regex.state == .on ? replace.stringValue : NSRegularExpression.escapedTemplate(for: replace.stringValue)
-                    let updated = expression.stringByReplacingMatches(in: old, range: NSRange(location: 0, length: (old as NSString).length), withTemplate: replacement)
-                    self.textView.insertText(updated, replacementRange: range)
-                }
-            } catch { self.message.stringValue = error.localizedDescription; self.message.textColor = .systemRed }
-        }
+        if findWindow == nil { findWindow = ContentsFindWindow(text: textView) }
+        findWindow?.show(on: window)
     }
     @objc func openRegionOCR() {
         guard !busy, regionOCR == nil, !window.hasDocumentDialog else { return }; finishEditing()

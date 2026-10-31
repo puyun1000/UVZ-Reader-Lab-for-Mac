@@ -23,7 +23,7 @@ enum BibliographicExtraction {
         var value = text.precomposedStringWithCompatibilityMapping.replacingOccurrences(of:"\r",with:"\n")
         // Normalize labels only; retain traditional characters in bibliographic values.
         for (a,b) in [("圖書在版編目","图书在版编目"),("國家圖書館出版品預行編目","图书在版编目"),("出版品預行編目","图书在版编目")] { value = value.replacingOccurrences(of:a,with:b) }
-        for (a,b) in [("書名","书名"),("叢書名","丛书名"),("叢書","丛书"),("出版時間","出版时间"),("出版發行","出版发行"),("總頁數","总页数"),("頁數","页数"),("責任編輯","责任编辑"),("內容提要","内容提要"),("內容簡介","内容简介"),("編著","编著"),("著譯者","著译者")] {
+        for (a,b) in [("出版機構","出版社"),("出版單位","出版社"),("出版機关","出版社"),("出版日期","出版日期"),("初版日期","出版日期"),("初版年月","出版日期"),("出版年月","出版年月"),("總經銷","总经销"),("書名","书名"),("叢書名","丛书名"),("叢書","丛书"),("出版時間","出版时间"),("出版發行","出版发行"),("總頁數","总页数"),("頁數","页数"),("責任編輯","责任编辑"),("內容提要","内容提要"),("內容簡介","内容简介"),("編著","编著"),("著譯者","著译者")] {
             value = value.replacingOccurrences(of:"(?m)^"+a+"(?=[ \\t:：=]|$)",with:b,options:.regularExpression)
         }
 
@@ -32,7 +32,8 @@ enum BibliographicExtraction {
     static func first(_ pattern: String,_ text: String) -> String? { BookMetadata.captures(pattern,text).first?.first }
     static func validDate(_ text: String) -> String? {
         let value = clean(text)
-        if let era = BookMetadata.captures("^(民國|民国|令和|平成|昭和)(元|[0-9]{1,3})年[ ]*(0?[1-9]|1[0-2])月(?:[0-9]{1,2}日)?$",value).first,let base = ["民國":1911,"民国":1911,"令和":2018,"平成":1988,"昭和":1925][era[0]],let year = era[1] == "元" ? 1 : Int(era[1]),let month = Int(era[2]) {
+        let eraValue=value.replacingOccurrences(of:" ",with:"")
+        if let era = BookMetadata.captures("^(?:中華)?(民國|民国|令和|平成|昭和)(元|[0-9]{1,3})年[ ]*(0?[1-9]|1[0-2])月(?:[0-9]{1,2}日)?$",eraValue).first,let base = ["民國":1911,"民国":1911,"令和":2018,"平成":1988,"昭和":1925][era[0]],let year = era[1] == "元" ? 1 : Int(era[1]),let month = Int(era[2]) {
             return String(base+year)+String(format:".%02d",month)
         }
         let months = ["January","February","March","April","May","June","July","August","September","October","November","December"]
@@ -67,7 +68,7 @@ enum BibliographicExtraction {
         let patterns: [(String,String)] = [
             ("书名","(?:书\\s*名|書\\s*名|タイトル|Title|Book Title)"),("作者","(?:作\\s*者|著\\s*者|编\\s*著|著\\s*译\\s*者|著者名|編者|Author(?:s)?|Written by)"),
             ("丛书名","(?:丛\\s*书\\s*名|丛\\s*书|叢書名|シリーズ(?:名)?|Series)"),("出版社","(?:出\\s*版\\s*社|出版发行|出版者|[発發]行(?:所|者)|Publisher|Published by)"),
-            ("出版日期","(?:出版日期|出版时间|出版年月|[発發]行(?:年月日|日)|Publication date|Date of publication|Published)"),("页数","(?:总页数|页数|ページ数|Pages|Page count)"),
+            ("出版日期","(?:出版日期|出版时间|出版年月|初版日期|初版年月|初版|[発發]行(?:年月日|日)|Publication date|Date of publication|Published)"),("页数","(?:总页数|页数|ページ数|Pages|Page count)"),
             ("SS号","(?:SS\\s*号|SSID)"),("DX号","(?:DX\\s*号|DXID)"),
             ("摘要","(?:摘要|内容提要|内容简介|Abstract|Summary)")]
         func production(_ line: String) -> Bool { line.range(of:"^(?:责任编辑|责任校对|装帧设计|封面设计|版式设计|印刷|定价|开本|字数|电话|地址|书号|ISBN|.*第.*[版印])",options:.regularExpression) != nil }

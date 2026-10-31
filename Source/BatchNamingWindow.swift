@@ -281,7 +281,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         if field === finalName { items[index].customName = field.stringValue }
         else if let key = field.identifier?.rawValue,fieldKeys.contains(key) {
             items[index].proposal!.metadata[key] = key == "出版日期" ? BookMetadata.date(field.stringValue) : field.stringValue
-            items[index].customName = nil; items[index].reviewed = false; reviewed.state = .off
+            items[index].customName = nil; items[index].reviewed = true; reviewed.state = .on
             formatHint.stringValue = "命名格式："+NamingPreferences.pattern(items[index].styleID,metadata:items[index].proposal!.metadata); finalName.stringValue = items[index].stem
             for (i,key) in fieldKeys.enumerated() { fieldStates[i].stringValue = items[index].proposal!.fieldStatus(key) }
         }
@@ -290,7 +290,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     }
     @objc func adoptEvidence() {
         guard let index = selectedIndex,!isApplying,items[index].outcome == nil,currentEvidence.indices.contains(evidenceTable.selectedRow) else { return }
-        let value = currentEvidence[evidenceTable.selectedRow]; items[index].proposal?.metadata[value.field] = value.value; items[index].customName = nil; items[index].reviewed = false; planIssues = [:]; table.reloadData(); loadDetails()
+        let value = currentEvidence[evidenceTable.selectedRow]; items[index].proposal?.metadata[value.field] = value.value; items[index].customName = nil; items[index].reviewed = true; planIssues = [:]; table.reloadData(); loadDetails()
     }
     @objc func showSources() {
         guard let index = selectedIndex,let proposal = items[index].proposal,!proposal.pages.isEmpty,!window.hasDocumentDialog else { return }

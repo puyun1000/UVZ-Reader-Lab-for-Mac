@@ -130,6 +130,10 @@ final class LooseBook {
         guard size <= 2 * 1024 * 1024 else { throw ReaderFailure("DAT 文件超过 2 MB。") }
         return try Data(contentsOf: url)
     }
+    func originalPageData(at index:Int) throws -> Data {
+        if files.isEmpty {return data}
+        return try Data(contentsOf:files[pages[index].entry],options:.mappedIfSafe)
+    }
     func pageData(at index: Int) throws -> Data {
         if files.isEmpty { return data }
         let file = files[pages[index].entry]
