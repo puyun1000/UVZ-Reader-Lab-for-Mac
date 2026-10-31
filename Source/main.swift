@@ -8,6 +8,15 @@ func emit(_ value: [String: Any]) throws {
 }
 
 let args = CommandLine.arguments
+if args.count>=4,args[1]=="--page-information" {
+    do {let book=try BookArchive(url:URL(fileURLWithPath:args[2])),index=(Int(args[3]) ?? 0)-1
+        guard book.pages.indices.contains(index) else {throw ReaderFailure("页码超出范围。")}
+        let image=try book.pageImage(at:index)
+        let value:[String:Any]=["description":book.pageDescription(at:index,width:image.width,height:image.height),"width":image.width,"height":image.height]
+        let data=try JSONSerialization.data(withJSONObject:value,options:[.sortedKeys]);print(String(decoding:data,as:UTF8.self));exit(0)
+    } catch {fputs("\(error.localizedDescription)\n",stderr);exit(1)}
+}
+
 if args.count == 2,args[1] == "--text-conversion-tests" {
     var checks:[String]=[]
     func check(_ yes:Bool,_ label:String) throws {guard yes else {throw ReaderFailure(label)};checks.append(label)}

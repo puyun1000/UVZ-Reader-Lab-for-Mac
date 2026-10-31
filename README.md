@@ -1,4 +1,4 @@
-# UVZ Reader Lab 0.19.0
+# UVZ Reader Lab 0.19.1
 
 独立实现的原生macOS扫描图书阅读与整理应用。支持UVZ／ZIP、PDG及PDG文件夹、PDF、DjVu和多页TIFF。适用于Apple芯片Mac、macOS14及以上；当前使用临时签名，未经Apple公证。
 

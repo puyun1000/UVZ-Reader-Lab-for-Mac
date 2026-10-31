@@ -17,4 +17,13 @@ with tempfile.TemporaryDirectory() as t:
   c.showPage()
  c.save();x=run('--batch-propose',books);row=next(v for v in x['books'] if v['path'].endswith('tail.pdf'));pages=[p['physical'] for p in row['proposal']['pages']]
  assert pages==list(range(1,11))+list(range(14,24)),pages;checks.append('23页PDF覆盖前10及末10页，尾页版权数据参与识别')
+with tempfile.TemporaryDirectory() as td:
+ import io,struct
+ buf=io.BytesIO();Image.new('RGB',(70,96),'red').save(buf,'PNG');raw=buf.getvalue()
+ for mode in [0,4,5]:
+  header=bytearray(56);header[:3]=b'HH\1';struct.pack_into('<HH',header,3,70,96);struct.pack_into('<I',header,7,mode);struct.pack_into('<I',header,28,len(raw))
+  payload=raw if mode==0 else raw[:128]+b'x'*(1 if mode==4 else 2)+raw[128:]
+  p=Path(td)/'page.pdg';p.write_bytes(header+payload);info=run('--page-information',p,1)
+  assert (info['width'],info['height'])==(70,96) and ('预处理 '+str(mode)) in info['description']
+  checks.append('V1 preprocessing '+str(mode)+' header and native dimensions')
 print(json.dumps(dict(passed=len(checks),checks=checks),ensure_ascii=False,indent=2))

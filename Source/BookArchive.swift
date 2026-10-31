@@ -192,7 +192,10 @@ final class BookArchive {
         let data = try? (loose.map {try $0.originalPageData(at:index)} ?? Self.read(entries[pages[index].entry],from:bytes))
         var type=url.pathExtension.uppercased()
         if let data,data.starts(with:[0x48,0x48]),data.count>=16 {
-            type = "PDG V\(data[2]) · 编码 \(String(format:"%02X",data[2]==1 ? data[10]:data[15]))H"
+            if data[2]==1,data.count>=56 {
+                let mode=(0..<4).reduce(0){$0 | Int(data[7+$1]) << ($1*8)}
+                type="PDG V1 · 预处理 \(mode)"
+            } else {type="PDG V\(data[2]) · 编码 \(String(format:"%02X",data[15]))H"}
         }
         return "\(type) · \(width) × \(height) 像素"
     }
