@@ -1,7 +1,77 @@
 {
-  "auditedOn": "2026-10-30",
+  "auditedOn": "2026-10-31",
   "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
   "versions": [
+    {
+      "version": "0.19.1",
+      "status": "original-release",
+      "sourceCommit": "7f01d9f56271d336b78ce8652c256daa50f3c47c",
+      "releaseId": 429831446,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.19.1",
+      "publishedAt": "2026-10-31T09:15:48Z",
+      "releaseNotes": "UVZ Reader Lab 0.19.1\n\n目录查找替换独立窗口；单页图像查看、整页与框选PNG导出；状态栏PDG信息与像素尺寸；批量编辑自动勾选人工核对；发白页面与港台版权页识别增强；PDF前后各10页候选去重。\n\n补正0.19.0中V1 PDG状态字段，按32位预处理值显示。365组功能／专项、45项原生交互检查通过；一份574页实书只读识别及原文件摘要／修改日期核对通过，实书提取字段仍须人工核验。\n\nApple芯片、macOS14以上。临时签名，未经Apple公证。旧发行、附件和标签保留。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.19.1-macOS-arm64.dmg",
+          "bytes": 12455259,
+          "sha256": "4e5ae83be6f0f06473cc1b023a651dc69693b967e8d5cd877776fc586b3addaf",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.19.1/UVZReaderLab-0.19.1-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.19.1-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "492d7bede3de08217588d1ab4c74fd64a7de2098efd777f67374da9c9ed89f2b",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.19.1/UVZReaderLab-0.19.1-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.19.1-verification.json",
+          "bytes": 28581,
+          "sha256": "b1c9e0d8cac83b2b583903bbc18004532d379ce42c7bb8e3e3d82f65f0f2c9bc",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.19.1/UVZReaderLab-0.19.1-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.19.1.zip",
+          "bytes": 19678695,
+          "sha256": "ef737f7785466497a9653f68eed80ce2d7b0cc9b93375c5e4b5a1f5be28185ed",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.19.1/UVZReaderLab-0.19.1.zip"
+        }
+      ]
+    },
+    {
+      "version": "0.19.0",
+      "status": "original-release",
+      "sourceCommit": "c82e91eaa4b5b65a25aa20880986f6828e04bf56",
+      "releaseId": 429829688,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.19.0",
+      "publishedAt": "2026-10-31T09:11:34Z",
+      "releaseNotes": " · 2026.10.31\n\n• 目录查找替换改为独立窗口，可反复查找与替换；全文替换不再误用单个搜索匹配作为范围，选区范围须显式勾选。\n• 页面状态栏增加PDG版本／编码类型和解码图像尺寸；页面右键增加单页图像窗口，支持放大、整页及框选PNG无损导出。\n• 批量手动修改书目信息或双击采用来源值后自动勾选人工核对。\n• 识别增加针对发白页面的对比度候选，比较文字置信度后择优；补充港台出版机构、初版日期等标签及民国日期处理，保留原文字形。\n• 单本及批量PDF版权页候选扩大至前10页和末尾10页，重叠页去重。\n\n\n362项功能／专项、45项原生界面检查通过。Apple芯片、macOS14+，临时签名、未经Apple公证。发白及港台专项采用生成夹具，实书结果仍需核对。历史版本长期保留。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.19.0-macOS-arm64.dmg",
+          "bytes": 12458144,
+          "sha256": "380a5a711eac7f65188d71212ad10dde0a401338659c03e199f4d1945cf3ed4b",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.19.0/UVZReaderLab-0.19.0-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.19.0-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "d88223db23247a06b3637f2fe8b74b8cd4a1434f95252876452224374917c018",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.19.0/UVZReaderLab-0.19.0-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.19.0-verification.json",
+          "bytes": 27844,
+          "sha256": "bb93e73df89672504787d6f1ba11cde2361159696ca2491f7c315a30a59e9a6d",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.19.0/UVZReaderLab-0.19.0-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.19.0.zip",
+          "bytes": 19675209,
+          "sha256": "50513d18b7f579a45fe34f8651b6ba19831d76c71b9e9555770b1d78d74638d5",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.19.0/UVZReaderLab-0.19.0.zip"
+        }
+      ]
+    },
     {
       "version": "0.18.0",
       "status": "original-release",
