@@ -8,6 +8,43 @@ func emit(_ value: [String: Any]) throws {
 }
 
 let args = CommandLine.arguments
+if args.count>=3,args[1]=="--pdf-reader-display-test" {
+    let app=NSApplication.shared;app.setActivationPolicy(.accessory)
+    let domain=Bundle.main.bundleIdentifier ?? "local.uvzreaderlab.rebuild",saved=UserDefaults.standard.persistentDomain(forName:Bundle.main.bundleIdentifier ?? "local.uvzreaderlab.rebuild")
+    let reader=ReaderController();reader.smokeMode=true;reader.open(URL(fileURLWithPath:args[2]))
+    func waitVector()->Bool {let end=Date().addingTimeInterval(30);while Date()<end {RunLoop.current.run(until:Date().addingTimeInterval(0.05));if reader.hasVectorDisplay {return true}};return false}
+    var checks=0
+    if waitVector(){checks+=1;reader.rotatePage();if waitVector(){checks+=1};reader.invertedColor();if waitVector(){checks+=1};reader.originalColor();reader.fitWidth();if waitVector(){checks+=1}}
+    reader.window.close();if let saved {UserDefaults.standard.setPersistentDomain(saved,forName:domain)} else {UserDefaults.standard.removePersistentDomain(forName:domain)}
+    print("{\"passed\":\(checks),\"vectorLayerInstalled\":\(checks==4)}");exit(checks==4 ? 0:1)
+}
+
+if args.count>=4,args[1]=="--pdf-vector-test" {
+    do {
+        let book=try BookArchive(url:URL(fileURLWithPath:args[2])),index=min(5,book.pages.count-1)
+        guard let page=try book.vectorPage(at:index) else {throw ReaderFailure("未取得矢量页面。")}
+        let base=try book.pageImage(at:index),rect=page.bounds(for:.mediaBox)
+        var values:[[String:Any]]=[]
+        for scale:CGFloat in [2,4,8] {
+            let width=Int(rect.width*scale),height=Int(rect.height*scale)
+            guard width*height<60_000_000,let context=CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else {throw ReaderFailure("测试页面超出限制。")}
+            let view=VectorPageView(page:page,rotation:0,crop:0,invert:false);view.frame=CGRect(x:0,y:0,width:width,height:height)
+            NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current=NSGraphicsContext(cgContext:context,flipped:false);view.draw(view.bounds);NSGraphicsContext.restoreGraphicsState()
+            guard let sharp=context.makeImage() else {throw ReaderFailure("测试绘制失败。")}
+            if scale==8 {let bitmap=NSBitmapImageRep(cgImage:sharp);try bitmap.representation(using:.png,properties:[:])!.write(to:URL(fileURLWithPath:args[3]))}
+            // Compare against PDFKit drawing directly at the same output scale.
+            guard let oracle=CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else {throw ReaderFailure("测试分配失败。")}
+            oracle.setFillColor(CGColor(gray:1,alpha:1));oracle.fill(CGRect(x:0,y:0,width:width,height:height));oracle.scaleBy(x:CGFloat(width)/rect.width,y:CGFloat(height)/rect.height);oracle.translateBy(x:-rect.minX,y:-rect.minY);page.draw(with:.mediaBox,to:oracle)
+            let count=width*height*4,a=context.data!.assumingMemoryBound(to:UInt8.self),b=oracle.data!.assumingMemoryBound(to:UInt8.self)
+            var delta:UInt64=0;for n in 0..<count {delta+=UInt64(abs(Int(a[n])-Int(b[n])))}
+            let mean=Double(delta)/Double(count);guard mean<1 else {throw ReaderFailure("矢量绘制与原生PDFKit不符：\(mean)")}
+            values.append(["scale":scale,"width":width,"height":height,"nativePDFKitMeanDifference":mean])
+        }
+        let result:[String:Any]=["passed":values.count,"baselineWidth":base.width,"baselineHeight":base.height,"renders":values]
+        let data=try JSONSerialization.data(withJSONObject:result,options:[.sortedKeys]);print(String(decoding:data,as:UTF8.self));exit(0)
+    } catch {fputs("\(error.localizedDescription)\n",stderr);exit(1)}
+}
+
 if args.count>=4,args[1]=="--page-information" {
     do {let book=try BookArchive(url:URL(fileURLWithPath:args[2])),index=(Int(args[3]) ?? 0)-1
         guard book.pages.indices.contains(index) else {throw ReaderFailure("页码超出范围。")}

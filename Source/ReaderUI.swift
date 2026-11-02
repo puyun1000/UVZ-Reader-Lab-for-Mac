@@ -99,6 +99,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private var settingsObserver: NSObjectProtocol?
     var diagnosticStatus: String { status.stringValue + " | " + ocrStatus.stringValue }
     var hasRenderedImage: Bool { !tiles.isEmpty }
+    var hasVectorDisplay:Bool {tiles.values.contains {$0.vectorView != nil}}
     var sidebarTitles: [String] { nodes.map(\.title) }
 
     override init() {
@@ -654,6 +655,10 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         guard let frame = layout.frames[index] else { return }
         if let tile = tiles[index] { tile.frame = frame; return }
         let tile = PageTile(image: image)
+        if let page=try? book?.vectorPage(at:index) {
+            let vector=VectorPageView(page:page,rotation:state.rotation,crop:state.crop,invert:inverted)
+            tile.vectorView=vector;tile.addSubview(vector,positioned:.above,relativeTo:tile.imageView)
+        }
         tile.onContextMenu = {[weak self] in self?.pageContextMenu(index:index)};tile.onDoubleClick = { [weak self] event in self?.doubleClickPage(event) }; tile.frame = frame
         document.addSubview(tile); tiles[index] = tile
         if ocrEnabled, let analysis = analysisCache.object(forKey: analysisKey(index)) { tile.overlay.analysis = analysis }

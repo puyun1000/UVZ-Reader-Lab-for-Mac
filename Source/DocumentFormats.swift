@@ -140,6 +140,16 @@ final class LooseBook {
         guard (try file.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0 <= 128 * 1024 * 1024 else { throw ReaderFailure("PDG 页面超过 128 MB。") }
         return try PageDecoder.decodedData(Data(contentsOf: file, options: .mappedIfSafe))
     }
+    private let vectorDocuments=NSCache<NSNumber,PDFDocument>()
+    func vectorPage(at index:Int) throws -> PDFPage? {
+        guard kind=="pdf" || pages[index].pdfPage != nil else{return nil}
+        let key=NSNumber(value:files.isEmpty ? -1:pages[index].entry)
+        lock.lock();defer{lock.unlock()}
+        if let doc=vectorDocuments.object(forKey:key) {return doc.page(at:files.isEmpty ? index:pages[index].pdfPage!)}
+        guard let doc=PDFDocument(data:try pageData(at:index)) else{return nil}
+        vectorDocuments.countLimit=4;vectorDocuments.setObject(doc,forKey:key)
+        return doc.page(at:files.isEmpty ? index:pages[index].pdfPage!)
+    }
     func pageImage(at index: Int) throws -> CGImage {
         if let pdf { lock.lock(); defer { lock.unlock() }; return try PageDecoder.image(pdf, at: index) }
         if ["djvu", "djv"].contains(kind) { return try DjVuTools.render(url, page: index + 1) }

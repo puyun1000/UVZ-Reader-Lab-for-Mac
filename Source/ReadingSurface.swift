@@ -1,6 +1,7 @@
 import AppKit
 import VisionKit
 import CoreImage
+import PDFKit
 
 final class FlowToolbar: NSView {
     var groups: [NSView] = [] { didSet { oldValue.forEach { $0.removeFromSuperview() }; groups.forEach { addSubview($0) }; needsLayout = true } }
@@ -99,10 +100,39 @@ final class PageDocumentView: NSView {
     }
 }
 
+/// Draw PDF operators into the window's current device context at every zoom.
+/// The bitmap beneath this view is retained only for image analysis and gestures.
+final class VectorPageView:NSView {
+    private let document:PDFDocument?
+    let page:PDFPage,rotation:Int,crop:Double,invert:Bool
+    init(page:PDFPage,rotation:Int,crop:Double,invert:Bool) {self.page=page;self.document=page.document;self.rotation=rotation;self.crop=crop;self.invert=invert;super.init(frame:.zero)}
+    required init?(coder:NSCoder){fatalError("init(coder:)")}
+    override var isOpaque:Bool {true}
+    override func hitTest(_ point:NSPoint)->NSView? {nil}
+    override func viewDidChangeBackingProperties(){super.viewDidChangeBackingProperties();needsDisplay=true}
+    override func draw(_ dirtyRect:NSRect) {
+        guard let c=NSGraphicsContext.current?.cgContext else{return}
+        let size=page.bounds(for:.mediaBox).size,factor=1-crop*2
+        guard size.width>0,size.height>0,factor>0 else{return}
+        c.saveGState();defer{c.restoreGState()}
+        c.clip(to:bounds);c.setShouldAntialias(true);c.setAllowsFontSmoothing(true)
+        if invert {c.beginTransparencyLayer(auxiliaryInfo:nil)}
+        c.setFillColor(CGColor(gray:1,alpha:1));c.fill(bounds)
+        c.saveGState();c.translateBy(x:bounds.midX,y:bounds.midY)
+        let output=rotation%2==0 ? size:CGSize(width:size.height,height:size.width)
+        c.scaleBy(x:bounds.width/(output.width*factor),y:bounds.height/(output.height*factor))
+        c.rotate(by:-CGFloat(rotation) * .pi / 2);c.translateBy(x:-size.width/2,y:-size.height/2)
+        let origin=page.bounds(for:.mediaBox).origin;c.translateBy(x:-origin.x,y:-origin.y)
+        page.draw(with:.mediaBox,to:c);c.restoreGState()
+        if invert {c.setBlendMode(.difference);c.setFillColor(CGColor(gray:1,alpha:1));c.fill(bounds);c.endTransparencyLayer()}
+    }
+}
+
 final class PageTile: NSView, ImageAnalysisOverlayViewDelegate {
     var onContextMenu:(()->NSMenu?)?
     override func menu(for event:NSEvent)->NSMenu? {onContextMenu?()}
     let imageView = NSImageView()
+    var vectorView:VectorPageView?
     let overlay = ImageAnalysisOverlayView(frame: .zero)
     var onDoubleClick: ((NSEvent) -> Void)?
     private var dragPoint: CGPoint?
@@ -119,7 +149,7 @@ final class PageTile: NSView, ImageAnalysisOverlayViewDelegate {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
     override func layout() {
-        super.layout(); imageView.frame = bounds; overlay.frame = bounds; overlay.setContentsRectNeedsUpdate()
+        super.layout(); imageView.frame = bounds; vectorView?.frame=bounds;vectorView?.needsDisplay=true;overlay.frame = bounds; overlay.setContentsRectNeedsUpdate()
     }
     func overlayView(_ overlayView:ImageAnalysisOverlayView,updatedMenuFor menu:NSMenu,for event:NSEvent,at point:CGPoint)->NSMenu {
         ChineseMenus.localize(menu)

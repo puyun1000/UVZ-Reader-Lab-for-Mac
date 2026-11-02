@@ -197,7 +197,8 @@ final class BookArchive {
                 type="PDG V1 · 预处理 \(mode)"
             } else {type="PDG V\(data[2]) · 编码 \(String(format:"%02X",data[15]))H"}
         }
-        return "\(type) · \(width) × \(height) 像素"
+        let role=(loose?.kind=="pdf" || pages[index].pdfPage != nil) ? "分析图像 ":""
+        return "\(type) · \(role)\(width) × \(height) 像素"
     }
     func pageData(at index: Int) throws -> Data {
         guard pages.indices.contains(index) else { throw ReaderFailure("页码超出范围。") }
@@ -205,6 +206,20 @@ final class BookArchive {
         return try PageDecoder.decodedData(Self.read(entries[pages[index].entry], from: bytes))
     }
 
+    private let vectorDocuments=NSCache<NSNumber,PDFDocument>()
+    func vectorPage(at index:Int) throws -> PDFPage? {
+        guard pages.indices.contains(index) else {return nil}
+        if let loose {return try loose.vectorPage(at:index)}
+        guard let number=pages[index].pdfPage else {return nil}
+        let data=try pageData(at:index)
+        pdfLock.lock();defer{pdfLock.unlock()}
+        let key=NSNumber(value:pages[index].entry)
+        let doc:PDFDocument
+        vectorDocuments.countLimit=8
+        if let cached=vectorDocuments.object(forKey:key) {doc=cached}
+        else {guard let parsed=PDFDocument(data:data) else{return nil};vectorDocuments.setObject(parsed,forKey:key);doc=parsed}
+        return doc.page(at:number)
+    }
     func pageImage(at index: Int) throws -> CGImage {
         guard pages.indices.contains(index) else { throw ReaderFailure("页码超出范围。") }
         if let loose { return try loose.pageImage(at: index) }
