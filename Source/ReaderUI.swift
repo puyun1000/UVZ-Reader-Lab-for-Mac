@@ -107,7 +107,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         settingsObserver = NotificationCenter.default.addObserver(forName: AppSettings.changed, object: nil, queue: .main) { [weak self] notification in
             guard let self, !self.smokeMode, notification.object as? String == "automaticOCR" else { return }
             let desired = AppSettings().automaticOCR
-            if self.ocrEnabled != desired { self.toggleOCR() }
+            if self.ocrEnabled != desired { self.setAutomaticOCR(desired) }
         }
         window.title = "UVZ Reader Lab"
         window.toolbarStyle = .unified
@@ -139,14 +139,16 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         filenameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         filenameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let region = button("框选识别…", #selector(recognizeRegion), symbol: "viewfinder"); region.toolTip = "框选一列或一块文字，识别后送入目录编辑"
-        readingControls.append(region)
+        let recognize = button("识字", #selector(recognizeVisible), symbol: "text.viewfinder")
+        recognize.toolTip = "识别当前可见页面，随后可拖选、复制文字"
+        readingControls.append(contentsOf:[recognize,region])
         repairButton.target = self; repairButton.action = #selector(repairPages); repairButton.bezelStyle = .rounded
         auditButton.target = self; auditButton.action = #selector(repairPages); auditButton.bezelStyle = .inline; auditButton.contentTintColor = .systemOrange; auditButton.isHidden = true
         readingControls.append(repairButton)
         inspectionQueue.maxConcurrentOperationCount = 1; inspectionQueue.qualityOfService = .utility
         renameButton.title="图书信息…";renameButton.image=NSImage(systemSymbolName:"info.circle",accessibilityDescription:"书籍信息与重命名");renameButton.imagePosition = .imageLeading
         repairButton.title="页面校对…"
-        let filebar = NSStackView(views: [filenameLabel, repairButton, region, renameButton]); filebar.spacing = 10
+        let filebar = NSStackView(views: [filenameLabel, repairButton, recognize, region, renameButton]); filebar.spacing = 10
         let body=readingSplit;body.isVertical=true;body.dividerStyle = .thin;body.delegate=self
         body.addArrangedSubview(sidebar);body.addArrangedSubview(scroll)
         body.setHoldingPriority(.init(rawValue:260),forSubviewAt:0);body.setHoldingPriority(.defaultLow,forSubviewAt:1)
@@ -534,10 +536,15 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     @objc func expandContents() { outline.expandItem(nil, expandChildren: true) }
     @objc func collapseContents() { outline.collapseItem(nil, collapseChildren: true) }
     @objc func toggleOCR() {
-        ocrEnabled.toggle(); ocrDelay?.cancel(); ocrTasks.values.forEach { $0.cancel() }; ocrTasks.removeAll()
-        tiles.values.forEach { $0.overlay.analysis = nil }
-        ocrStatus.stringValue = ocrEnabled ? "页面停留后自动识别文字" : "自动文字选取已关闭"
-        if ocrEnabled { scheduleRecognition() }
+        let enabled = !ocrEnabled
+        setAutomaticOCR(enabled)
+        if !smokeMode { AppSettings().set(enabled,"automaticOCR") }
+    }
+    private func setAutomaticOCR(_ enabled: Bool) {
+        ocrEnabled = enabled
+        ocrDelay?.cancel()
+        ocrStatus.stringValue = enabled ? "页面停留后自动识别文字" : "自动识字已关闭，可点按「识字」"
+        if enabled { scheduleRecognition() }
     }
     private func applyGeometryOptions() { updateControls(); relayout(preservePosition: true); save() }
     private func updateControls() {
@@ -661,30 +668,33 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         }
         tile.onContextMenu = {[weak self] in self?.pageContextMenu(index:index)};tile.onDoubleClick = { [weak self] event in self?.doubleClickPage(event) }; tile.frame = frame
         document.addSubview(tile); tiles[index] = tile
-        if ocrEnabled, let analysis = analysisCache.object(forKey: analysisKey(index)) { tile.overlay.analysis = analysis }
+        if let analysis = analysisCache.object(forKey: analysisKey(index)) { tile.overlay.analysis = analysis }
         if index == state.page, let raw = rawCache.object(forKey:NSNumber(value:index)) { checkPageMargin(index,image:raw) }
         scheduleRecognition()
     }
     private func scheduleRecognition() {
         guard ocrEnabled, !smokeMode, book != nil else { return }
         ocrDelay?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.recognizeVisible() }; ocrDelay = work
+        let work = DispatchWorkItem { [weak self] in self?.recognizeVisiblePages(limit:2) }; ocrDelay = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
-    func recognizeVisible() {
-        guard ocrEnabled, ImageAnalyzer.isSupported else { ocrStatus.stringValue = "此设备暂不支持自动文字选取"; return }
+    @objc func recognizeVisible() { recognizeVisiblePages(limit:nil) }
+    private func recognizeVisiblePages(limit: Int?) {
+        guard book != nil else { return }
+        guard ImageAnalyzer.isSupported else { ocrStatus.stringValue = "此设备暂不支持文字识别"; return }
         let visible = scroll.contentView.bounds
         let indices = tiles.keys.filter { layout.frames[$0]?.intersects(visible) == true }.sorted { abs((layout.frames[$0]?.midY ?? 0) - visible.midY) < abs((layout.frames[$1]?.midY ?? 0) - visible.midY) }
-        for index in indices.prefix(2) {
+        if indices.isEmpty { ocrStatus.stringValue = "页面正在载入，请稍后识字"; return }
+        for index in indices.prefix(limit ?? indices.count) {
             let key = analysisKey(index)
             if let cached = analysisCache.object(forKey: key) { tiles[index]?.overlay.analysis = cached; ocrStatus.stringValue = cached.hasResults(for: .text) ? "文字可选取、复制" : "此页未识别到文字"; continue }
             guard ocrTasks[index] == nil, let displayed = tiles[index]?.imageView.image,
                   let cg = displayed.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
             let token = session, epoch = revision, undoInversion = inverted
-            ocrStatus.stringValue = "正在自动识别文字…"
+            ocrStatus.stringValue = "正在识别文字…"
             ocrTasks[index] = Task { @MainActor [weak self] in
                 guard let self else { return }
-                defer { if self.session == token && self.revision == epoch { self.ocrTasks.removeValue(forKey: index) } }
+                defer { if !Task.isCancelled, self.session == token, self.revision == epoch { self.ocrTasks.removeValue(forKey: index) } }
                 do {
                     let image = try PageImageFactory.prepare(cg, rotation: 0, crop: 0, invert: undoInversion)
                     var config = ImageAnalyzer.Configuration(.text)
@@ -795,6 +805,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         case #selector(twoContinuousMode): item.state = state.doublePages && state.continuous ? .on : .off
         case #selector(toggleDirection): item.state = state.rightToLeft ? .on : .off
         case #selector(toggleSidebar): item.state = sidebarVisible ? .on : .off; return true
+        case #selector(recognizeVisible): return book != nil
         case #selector(recognizeRegion): return book != nil && !window.hasDocumentDialog
         case #selector(toggleOCR): item.state = ocrEnabled ? .on : .off
         case #selector(systemColor): item.state = state.color == 0 ? .on : .off

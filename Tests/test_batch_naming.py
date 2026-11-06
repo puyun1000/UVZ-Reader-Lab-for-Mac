@@ -1,8 +1,10 @@
 """Folder proposals and guarded writes on disposable archive, PDF and PDG-folder fixtures."""
 from pathlib import Path
 import hashlib,io,json,os,subprocess,tempfile,zipfile
-from PIL import Image
-from pypdf import PdfWriter
+from PIL import Image,ImageDraw,ImageFont
+from pypdf import PdfReader,PdfWriter
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 ROOT=Path(__file__).resolve().parents[1];EXE=ROOT/'UVZ Reader Lab.app/Contents/MacOS/UVZReaderLab'
 def run(*args,ok=True):
  p=subprocess.run([str(EXE),*map(str,args)],capture_output=True,text=True,timeout=90)
@@ -59,5 +61,39 @@ def main():
   merge=root/'merge.json';merge.write_text(json.dumps(dict(original={'书名':'已有','出版日期':'2020','SS号':'12345678'},evidence=[dict(field='书名',value='另一书',source='CIP著录',inferred=False),dict(field='出版日期',value='2020.08',source='出版信息',inferred=False),dict(field='作者',value='甲',source='封面',inferred=True)])))
   m=run('--batch-merge',merge);assert m['metadata']['书名']=='已有' and m['metadata']['出版日期']=='2020.08' and '书名来源待核对' in m['reviewReasons'] and '作者来源待核对' in m['reviewReasons']
   checks.append('合并保留已有值并列出冲突，允许同年年月补齐，推测值需核对')
+  # A text-layer colophon and a separate image-only one, both past the first ten pages.
+  mixed=root/'mixed';mixed.mkdir();pdf=mixed/'Mixed.pdf'
+  writer=canvas.Canvas(str(pdf),pagesize=(612,792))
+  imprint=['Title: Harbor Archive','Author: Lin Ming','Publisher: Harbor Press',
+           'Publication date: June 2024','ISBN: 9780306406157']
+  def lines(values):
+   for i,value in enumerate(values):writer.drawString(60,710-24*i,value)
+  for physical in range(1,25):
+   if physical==18:lines(imprint)
+   elif physical==22:
+    picture=Image.new('RGB',(1000,1100),'white');draw=ImageDraw.Draw(picture)
+    font=ImageFont.truetype('/System/Library/Fonts/Supplemental/Arial.ttf',44)
+    for i,value in enumerate(imprint):draw.text((60,60+65*i),value,font=font,fill='black')
+    writer.drawImage(ImageReader(picture),0,0,width=600,height=660)
+   else:
+    lines(['This is sample content for checking the original text of this publication.']*5)
+   writer.showPage()
+  writer.save();old=pdf.read_bytes();stamp=pdf.stat().st_mtime_ns
+  row=run('--batch-propose',mixed)['books'][0]['proposal']
+  by_page={p['physical']:p for p in row['pages']}
+  assert sorted(by_page)==[*range(1,11),*range(15,25)],by_page.keys()
+  assert by_page[18]['textLayer'] and by_page[18]['role']=='版权页',by_page[18]
+  assert not by_page[22]['textLayer'] and by_page[22]['role']=='版权页',by_page[22]
+  assert by_page[10]['textLayer'] and by_page[10]['role']=='候选页'
+  for page in [18,22]:assert any(e.get('page')==page and e['field']=='ISBN' and e['value']=='9780306406157' for e in row['evidence']),row['evidence']
+  forced=run('--batch-propose',mixed,'--pdf-full-ocr')['books'][0]['proposal']
+  assert not any(p['textLayer'] for p in forced['pages'])
+  short=root/'short';short.mkdir()
+  one=PdfWriter();one.add_page(PdfReader(pdf).pages[17])
+  with (short/'Short.pdf').open('wb') as out:one.write(out)
+  short_pages=run('--batch-propose',short)['books'][0]['proposal']['pages']
+  assert len(short_pages)==1 and short_pages[0]['physical']==1
+  assert pdf.read_bytes()==old and pdf.stat().st_mtime_ns==stamp
+  checks.append('PDF首尾各十页去重检查；文字层与扫描版权页各有来源；可指定逐页OCR')
  print(json.dumps(dict(passed=len(checks),checks=checks),ensure_ascii=False,indent=2))
 if __name__=='__main__':main()

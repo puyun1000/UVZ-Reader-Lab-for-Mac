@@ -142,7 +142,7 @@ if args.count >= 3,["--batch-propose","--batch-apply","--batch-merge"].contains(
             var rows: [[String:Any]] = []
             for url in urls {
                 do {
-                    let proposal = try autoreleasepool { try BatchNaming.analyse(url,ocr:!args.contains("--no-ocr")) }
+                    let proposal = try autoreleasepool { try BatchNaming.analyse(url,ocr:!args.contains("--no-ocr"),forcePDFOCR:args.contains("--pdf-full-ocr")) }
                     let data = try JSONSerialization.jsonObject(with:JSONEncoder().encode(proposal)) as! [String:Any]
                     rows.append(["path":url.path,"proposal":data,"candidates":proposal.candidates,"suggestedName":proposal.suggestedName,"reviewReasons":proposal.reviewReasons])
                 } catch { rows.append(["path":url.path,"error":error.localizedDescription]) }

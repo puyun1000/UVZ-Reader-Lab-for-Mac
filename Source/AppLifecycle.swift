@@ -190,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             item("单页视图", #selector(ReaderController.singlePageMode)), item("单页连续", #selector(ReaderController.singleContinuousMode)),
             item("双页视图", #selector(ReaderController.twoPageMode)), item("双页连续", #selector(ReaderController.twoContinuousMode)),
             item("双页时首页单独显示", #selector(ReaderController.toggleCoverAlone)), item("滚轮直接翻页", #selector(ReaderController.toggleWheelPaging)),
-            item("从右至左", #selector(ReaderController.toggleDirection)), .separator(), item("框选识别目录…", #selector(ReaderController.recognizeRegion), "r", modifiers: [.command,.option]), item("自动文字选取", #selector(ReaderController.toggleOCR))], to: main)
+            item("从右至左", #selector(ReaderController.toggleDirection)), .separator(), item("框选识别目录…", #selector(ReaderController.recognizeRegion), "r", modifiers: [.command,.option]), item("识字", #selector(ReaderController.recognizeVisible)), item("自动识字", #selector(ReaderController.toggleOCR))], to: main)
         _ = addMenu("显示", [item("显示目录栏", #selector(ReaderController.toggleSidebar), "d", modifiers: [.command, .shift]),
             item("显示页码作为目录项", #selector(ReaderController.togglePageNumbers)), item("全部展开目录", #selector(ReaderController.expandContents)), item("全部折叠目录", #selector(ReaderController.collapseContents)), .separator(),
             item("适合宽度", #selector(ReaderController.fitWidth)), item("适合整页", #selector(ReaderController.fitWhole)), item("适合高度", #selector(ReaderController.fitHeight)), item("原始大小", #selector(ReaderController.actualSize)),
@@ -750,11 +750,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 guard reader.renderedPageIndices.contains(reader.state.page) else { smokeTick(); return }
                 guard reader.checkReadingInputs() else { failSmoke("keyboard or edge-scroll page navigation"); return }
                 smokeChecks.append("方向键翻页与单页滚到边缘后翻页")
-                if ImageAnalyzer.isSupported { reader.recognizeVisible(); advance() }
+                if ImageAnalyzer.isSupported {
+                    reader.ocrEnabled = false
+                    reader.recognizeVisible()
+                    advance()
+                }
                 else { smokeOCR = "device-unsupported"; advance(to: 7) }
             case 6:
                 if !reader.recognizedText.isEmpty {
-                    guard reader.checkTextSelection() else { failSmoke("recognized text selection overlay"); return }
+                    guard !reader.ocrEnabled, reader.checkTextSelection() else { failSmoke("manual OCR and text selection with automatic OCR off"); return }
                     smokeOCR = "text-recognized-and-selectable"; smokeChecks.append("真实扫描页文字识别与文字选取"); advance(to: 7)
                 }
                 else if Date() > smokeDeadline.addingTimeInterval(-8) { smokeOCR = "no-text-or-model-unavailable"; advance(to: 7) }

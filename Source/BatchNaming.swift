@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import PDFKit
 
 struct NamingEvidence: Codable, Equatable {
     let field: String
@@ -13,14 +14,19 @@ struct NamingPage: Codable {
     let file: String
     let role: String
     let text: String
+    let textLayer: Bool
 }
-struct NamingProposal: Codable {
+struct NamingProposal: Encodable {
     var metadata: [String:String]
-    var evidence: [NamingEvidence]
-    var pages: [NamingPage]
-    var notes: [String]
-    var originalMetadata: [String:String]
-    var fingerprint: String
+    let evidence: [NamingEvidence]
+    let pages: [NamingPage]
+    let notes: [String]
+    let originalMetadata: [String:String]
+    let fingerprint: String
+    let selection: MetadataSelection
+    private enum CodingKeys: String, CodingKey {
+        case metadata, evidence, pages, notes, originalMetadata, fingerprint
+    }
     var candidates: [String] {
         FilenameTemplate.presets.map { (try? FilenameTemplate.render($0,metadata:metadata)) ?? "" }
     }
@@ -30,17 +36,15 @@ struct NamingProposal: Codable {
         if metadata["出版日期",default:""].count == 4 { reasons.append("出版月份未确定") }
         if let date = metadata["出版日期"],!date.isEmpty,date.range(of:"^[12][0-9]{3}(?:\\.(?:0[1-9]|1[0-2]))?$",options:.regularExpression) == nil { reasons.append("出版日期格式待核对") }
         if let ss = metadata["SS号"],!ss.isEmpty,ss.range(of:"^[0-9]{8}$",options:.regularExpression) == nil { reasons.append("SS号格式待核对") }
-        let decision = MetadataResolver.select(original:originalMetadata,evidence:evidence)
-        for key in decision.uncertain { reasons.append(key+"来源待核对") }
+        for key in selection.uncertain { reasons.append(key+"来源待核对") }
         if let isbn = metadata["ISBN"],!isbn.isEmpty,!CopyrightMetadata.validISBN(isbn.filter { $0.isNumber || $0 == "X" }.uppercased()) { reasons.append("ISBN校验未通过") }
         return Array(Set(reasons)).sorted()
     }
     var suggestedName: String { (try? FilenameTemplate.render(NamingPreferences.pattern(NamingPreferences.automatic,metadata:metadata),metadata:metadata)) ?? "" }
     func fieldStatus(_ key: String) -> String {
         guard !metadata[key,default:""].isEmpty else { return "未确定" }
-        let d = MetadataResolver.select(original:originalMetadata,evidence:evidence)
-        if d.uncertain.contains(key) { return "待核对" }
-        if !BatchNaming.equivalent(key,metadata[key,default:""],d.values[key,default:""]) { return "手工采用" }
+        if selection.uncertain.contains(key) { return "待核对" }
+        if !BatchNaming.equivalent(key,metadata[key,default:""],selection.values[key,default:""]) { return "手工采用" }
         if !originalMetadata[key,default:""].isEmpty && !BatchNaming.equivalent(key,metadata[key]!,originalMetadata[key]!) { return "已自动替换" }
         return evidence.filter { $0.field == key && MetadataResolver.credible($0) && BatchNaming.equivalent(key,$0.value,metadata[key]!) }.count>=2 ? "多来源一致" : "已选取"
     }
@@ -49,7 +53,10 @@ struct NamingProposal: Codable {
 final class BatchNamingItem {
     let originalURL: URL
     var url: URL
-    var proposal: NamingProposal?
+    var proposal: NamingProposal? {
+        didSet { reviewReasons = proposal?.reviewReasons ?? [] }
+    }
+    private(set) var reviewReasons: [String] = []
     var included = false, reviewed = false
     var styleID = NamingPreferences.automatic
     var customName: String?
@@ -61,8 +68,8 @@ final class BatchNamingItem {
     var displayName: String { stem + (url.pathExtension.isEmpty || ((try? url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory) == true) ? "" : "."+url.pathExtension) }
     var status: String {
         if let outcome { return outcome }; if analysing { return "正在分析" }; if let error { return error }
-        guard let proposal else { return "待分析" }
-        return proposal.reviewReasons.isEmpty ? "可用建议" : reviewed ? "已人工核对" : "待核对 \(proposal.reviewReasons.count) 项"
+        guard proposal != nil else { return "待分析" }
+        return reviewReasons.isEmpty ? "可用建议" : reviewed ? "已人工核对" : "待核对 \(reviewReasons.count) 项"
     }
 }
 struct BatchNameRequest: Codable {
@@ -130,7 +137,7 @@ enum BatchNaming {
         try visit(root.standardizedFileURL); return result
     }
     /// Stream fingerprints so a library scan retains neither page data nor open books.
-    static func fingerprint(_ url: URL) throws -> String {
+    static func fingerprint(_ url: URL, cancelled: () -> Bool = { false }) throws -> String {
         let fm = FileManager.default
         var hash = SHA256()
         func feed(_ text: String) { hash.update(data:Data(text.utf8)); hash.update(data:Data([0])) }
@@ -138,7 +145,10 @@ enum BatchNaming {
             let attrs = try file.resourceValues(forKeys:[.isSymbolicLinkKey])
             guard attrs.isSymbolicLink != true else { throw ReaderFailure("不处理符号链接图书或信息文件。") }
             let handle = try FileHandle(forReadingFrom:file); defer { try? handle.close() }
-            while let data = try handle.read(upToCount:1024*1024),!data.isEmpty { hash.update(data:data) }
+            while let data = try handle.read(upToCount:1024*1024),!data.isEmpty {
+                if cancelled() { throw ReaderFailure("已停止分析。") }
+                hash.update(data:data)
+            }
         }
         func folder(_ root: URL) throws {
             guard let enumerator = fm.enumerator(at:root,includingPropertiesForKeys:[.isRegularFileKey,.isSymbolicLinkKey],options:[.skipsHiddenFiles]) else { throw ReaderFailure("无法检查信息文件夹。") }
@@ -161,8 +171,8 @@ enum BatchNaming {
     }
     static func merge(original: [String:String], evidence: [NamingEvidence], pages: [NamingPage] = [], notes: [String] = [], fingerprint: String = "") -> NamingProposal {
         let original = BookMetadata.canonical(original)
-        let chosen = MetadataResolver.select(original:original,evidence:evidence).values
-        return NamingProposal(metadata:chosen,evidence:evidence,pages:pages,notes:notes,originalMetadata:original,fingerprint:fingerprint)
+        let selection = MetadataResolver.select(original:original,evidence:evidence)
+        return NamingProposal(metadata:selection.values,evidence:evidence,pages:pages,notes:notes,originalMetadata:original,fingerprint:fingerprint,selection:selection)
     }
     static func pageValues(_ lines: [PageInspection.EvidenceLine], role: String, anchors: [String:String]) -> ([String:String],Set<String>) {
         let text = TextRecognition.ordered(lines).map(\.text).joined(separator:"\n")
@@ -202,46 +212,57 @@ enum BatchNaming {
         if role != "版权页" { for key in values.keys where !["ISBN","SS号","DX号"].contains(key) { if !equivalent(key,values[key]!,anchors[key,default:""]) { inferred.insert(key) } } }
         return (values,inferred)
     }
-    static func analyse(_ url: URL, ocr: Bool = true, options: RecognitionOptions = .saved, cancelled: () -> Bool = { false }, progress: (String) -> Void = { _ in }) throws -> NamingProposal {
-        let before = try fingerprint(url)
+    static func analyse(_ url: URL, ocr: Bool = true, forcePDFOCR: Bool = false, options: RecognitionOptions = .saved, cancelled: () -> Bool = { false }, progress: (String) -> Void = { _ in }) throws -> NamingProposal {
+        let before = try fingerprint(url,cancelled:cancelled)
         if cancelled() { throw ReaderFailure("已停止分析。") }
-        let book = try BookArchive(url:url), original = BookMetadata.canonical(book.metadata), nameValues = filenameValues(url)
-        var evidence = original.filter { BookMetadata.fields.contains($0.key) && !$0.value.isEmpty }.map { NamingEvidence(field:$0.key,value:$0.value,source:book.usesPDGNumbering ? "BookInfo.dat" : "文档信息",page:nil,inferred:false) }
+        let source = try NamingSource(url)
+        let original = BookMetadata.canonical(source.metadata), nameValues = filenameValues(url)
+        var evidence = original.filter { BookMetadata.fields.contains($0.key) && !$0.value.isEmpty }.map { NamingEvidence(field:$0.key,value:$0.value,source:source.book?.usesPDGNumbering == true ? "BookInfo.dat" : "文档信息",page:nil,inferred:false) }
         var notes: [String] = [], pages: [NamingPage] = [], selected: [(Int,String)] = []
+        var anchors = original
+        for (key,value) in nameValues where anchors[key,default:""].isEmpty { anchors[key] = value }
         if ocr {
-            if book.usesPDGNumbering {
+            let indices = 0..<source.pageCount
+            if let book = source.book, book.usesPDGNumbering {
                 for (group,role) in [(0,"封面"),(1,"书名页"),(2,"版权页")] {
-                    for index in book.pages.indices.filter({book.pages[$0].key.group == group}).prefix(group == 2 ? 3 : group == 1 ? 2 : 1) { selected.append((index,role)) }
+                    for index in indices.filter({book.pages[$0].key.group == group}).prefix(group == 2 ? 3 : group == 1 ? 2 : 1) { selected.append((index,role)) }
                 }
                 if book.pages.filter({$0.key.group == 1}).count > 1 { notes.append("多张书名页，需核对卷册或合订信息") }
             }
-            if url.pathExtension.lowercased() == "pdf" {
-                selected = Array(Set(book.pages.indices.prefix(10)).union(book.pages.indices.suffix(10))).sorted().map { ($0,"待判定页") }
-            } else if selected.isEmpty { selected = Array(book.pages.indices.prefix(6)).map { ($0,"待判定页") } }
+            if source.pdf != nil {
+                selected = Array(Set(indices.prefix(10)).union(indices.suffix(10))).sorted().map { ($0,"待判定页") }
+            } else if selected.isEmpty { selected = Array(indices.prefix(6)).map { ($0,"待判定页") } }
             else if !selected.contains(where:{$0.1 == "版权页"}) {
-                for index in book.pages.indices.prefix(8) where !selected.contains(where:{$0.0 == index}) { selected.append((index,"待判定页")) }
+                for index in indices.prefix(8) where !selected.contains(where:{$0.0 == index}) { selected.append((index,"待判定页")) }
             }
             for (index,declaredRole) in selected {
                 if cancelled() { throw ReaderFailure("已停止分析。") }
-                progress("识别\(declaredRole)（物理\(index+1)）")
                 do {
-                    let lines = try autoreleasepool { try BibliographicOCR.lines(book.pageImage(at:index),options:options) }
-                    let text = TextRecognition.ordered(lines).map(\.text).joined(separator:"\n")
+                    let page = try autoreleasepool {
+                        if !forcePDFOCR, options.layout != "vertical", let native = source.nativeText(at:index) {
+                            progress("读取文字层（物理\(index+1)）")
+                            return (native, [PageInspection.EvidenceLine](), true)
+                        }
+                        progress("识别\(declaredRole)（物理\(index+1)）")
+                        let lines = try BibliographicOCR.lines(source.image(at:index),options:options)
+                        return (TextRecognition.ordered(lines).map(\.text).joined(separator:"\n"),lines,false)
+                    }
+                    let (text,lines,textLayer) = page
                     let copyrightLike = BibliographicExtraction.isCopyright(text)
-                    let role = declaredRole == "待判定页" ? (copyrightLike ? "版权页" : index == 0 ? "封面" : "书名页") : declaredRole == "版权页" && !copyrightLike ? "待确认版权页" : declaredRole
+                    let otherRole = source.pdf != nil && index >= 3 ? "候选页" : index == 0 ? "封面" : "书名页"
+                    let role = declaredRole == "待判定页" ? (copyrightLike ? "版权页" : otherRole) : declaredRole == "版权页" && !copyrightLike ? "待确认版权页" : declaredRole
                     if role == "待确认版权页" { notes.append("标记版权页未识别到版权特征，需查看原图") }
-                    if text.isEmpty { notes.append("物理\(index+1)页未识别到文字") }
-                    pages.append(NamingPage(physical:index+1,file:book.pages[index].name,role:role,text:text))
-                    var anchors = original; for (key,value) in nameValues where anchors[key,default:""].isEmpty { anchors[key] = value }
+                    if text.isEmpty && role != "候选页" { notes.append("物理\(index+1)页未识别到文字") }
+                    pages.append(NamingPage(physical:index+1,file:source.pageName(at:index),role:role,text:text,textLayer:textLayer))
                     if role.contains("版权页") {
                         let analysis = BibliographicExtraction.analyse(text)
                         notes += analysis.notes.map { "物理\(index+1)页："+$0 }
                         for value in analysis.evidence { evidence.append(NamingEvidence(field:value.field,value:value.value,source:value.source,page:index+1,inferred:value.inferred)) }
-                    } else {
+                    } else if role != "候选页" {
                         let (values,inferred) = pageValues(lines,role:role,anchors:anchors)
                         for (key,value) in values where !value.isEmpty { evidence.append(NamingEvidence(field:key,value:value,source:role,page:index+1,inferred:inferred.contains(key))) }
                     }
-                    if lines.contains(where:{$0.confidence < 0.35}) { notes.append("物理\(index+1)页部分文字识别不清，请核对原图") }
+                    if role != "候选页", lines.contains(where:{$0.confidence < 0.35}) { notes.append("物理\(index+1)页部分文字识别不清，请核对原图") }
                 } catch { notes.append("物理\(index+1)页未能识别："+error.localizedDescription) }
             }
             if !pages.contains(where:{$0.role == "版权页"}) { notes.append("候选页面中未确认版权页") }
@@ -253,7 +274,7 @@ enum BatchNaming {
             let x = ranking[a.element.source,default:4], y = ranking[b.element.source,default:4]
             return x != y ? x<y : a.offset<b.offset
         }.map(\.element)
-        guard try fingerprint(url) == before else { throw ReaderFailure("图书在分析期间发生变化，请重新分析。") }
+        guard try fingerprint(url,cancelled:cancelled) == before else { throw ReaderFailure("图书在分析期间发生变化，请重新分析。") }
         if cancelled() { throw ReaderFailure("已停止分析。") }
         return merge(original:original,evidence:evidence,pages:pages,notes:notes,fingerprint:before)
     }
@@ -318,5 +339,64 @@ enum BatchNaming {
             rows.append(values.map(quote).joined(separator:","))
         }
         return "\u{feff}"+rows.joined(separator:"\r\n")+"\r\n"
+    }
+}
+
+/// Batch naming reads PDF metadata and candidate pages without loading the reader's outline or edit snapshot.
+struct NamingSource {
+    let url: URL
+    let book: BookArchive?
+    let pdf: PDFDocument?
+    let metadata: [String:String]
+    var pageCount: Int { pdf?.pageCount ?? book?.pages.count ?? 0 }
+
+    init(_ url: URL) throws {
+        self.url = url
+        let isDirectory = try url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory == true
+        if !isDirectory && url.pathExtension.lowercased() == "pdf" {
+            guard let document = PDFDocument(url:url), !document.isLocked else {
+                throw ReaderFailure("PDF 无法读取或需要密码。")
+            }
+            guard (1...100_000).contains(document.pageCount) else { throw ReaderFailure("文档为空或页数超过限制。") }
+            pdf = document
+            book = nil
+            var values = NativeDocumentMetadata.pdfValues(document)
+            let companion = URL(fileURLWithPath:url.path+".uvzmeta",isDirectory:true)
+            if let info = try LooseBook.find("bookinfo.dat",in:companion) {
+                values.merge(readBookInfo(try LooseBook.smallData(info))) { _, legacy in legacy }
+            }
+            metadata = values
+        } else {
+            let archive = try BookArchive(url:url)
+            book = archive
+            pdf = nil
+            metadata = archive.metadata
+        }
+    }
+
+    func pageName(at index: Int) -> String {
+        book?.pages[index].name ?? url.lastPathComponent
+    }
+
+    func image(at index: Int) throws -> CGImage {
+        if let pdf { return try PageDecoder.image(pdf,at:index) }
+        return try book!.pageImage(at:index)
+    }
+
+    func nativeText(at index: Int) -> String? {
+        guard let text = pdf?.page(at:index)?.string?.trimmingCharacters(in:.whitespacesAndNewlines),
+              !text.isEmpty, text.utf16.count <= 30_000,
+              !text.unicodeScalars.contains(where: { $0.value == 0xfffd || $0.properties.generalCategory == .privateUse ||
+                  ($0.properties.generalCategory == .control && !CharacterSet.whitespacesAndNewlines.contains($0)) }) else { return nil }
+        if BibliographicExtraction.isCopyright(text) {
+            let values = BibliographicExtraction.analyse(text).values
+            // Require corroborating bibliographic fields before trusting the text layer alone.
+            guard values["ISBN"] != nil, values["出版社"] != nil, values["出版日期"] != nil else { return nil }
+        } else {
+            // Keep OCR for cover/title layout, sparse text layers and potentially scanned colophons.
+            guard index >= 3, text.filter(\.isLetter).count >= 150,
+                  text.split(whereSeparator:\.isNewline).count >= 4 else { return nil }
+        }
+        return text
     }
 }
