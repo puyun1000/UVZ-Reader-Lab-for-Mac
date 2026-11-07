@@ -10,6 +10,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+#include <zlib.h>
 using Bytes = std::vector<uint8_t>;
 static uint32_t u32(const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1])<<8 | uint32_t(p[2])<<16 | uint32_t(p[3])<<24; }
 static void put32(uint8_t* p, uint32_t v) { for(int i=0;i<4;i++)p[i]=v>>(8*i); }
@@ -44,18 +45,24 @@ static void legacy(const Bytes& h,Bytes& b,int type) {
     for(size_t i=0;i+16<=b.size();i+=16)tea(b.data()+i,k);
 }
 #include "PDGSeries.h"
-static void variant(const Bytes& h,Bytes& out,int type){
-    static const Bytes key215=[] {
+static const Bytes key215=[] {
         const char* hex="3133326a6b73646961753334756b6a617364666c6b6a2140233233346166646a693738232532333441446620761c3d2d0773646b6a3930383334323c4144463e2f2377253474356f387577726f75796f75686a38393334303338703335307c2b5f53444661647772213233346761734d2c2e737066646c705b574565793364667366677366343839305e3a3921402335362638393338343937383930373839303534696f657275615e337e2132262a285f2b2a283830772675696466733967686964666f7765723233392d383974616572432821376100";
         Bytes b;for(size_t i=0;i<strlen(hex);i+=2){unsigned v;sscanf(hex+i,"%2x",&v);b.push_back(v);}return b;
-    }();
-    static const Bytes key130=[] {const char* s="Afgasdkol!@#$564746Lfat0[9i FDLAas090132!$@##$2354(*^78~*54sdfakl;ml;lak;j2a#$2342!@#128-reg;o[werqPWEQRioADSF1234&*(6908_)55454!";return Bytes(s,s+strlen(s));}();
-    std::array<int64_t,32> fib{};fib[0]=fib[1]=1;for(int i=2;i<32;i++)fib[i]=fib[i-1]+fib[i-2];
-    std::array<int64_t,64> primes{};primes[0]=2;primes[1]=3;
-    for(int cur=5,pos=2,phase=1;pos<64;){
-        if(cur!=25&&cur!=49&&cur!=121&&cur!=169&&cur!=289)primes[pos++]=cur;
-        phase++;if(phase==3){cur+=4;phase=1;}else cur+=2;
+}();
+static constexpr char key130[]="Afgasdkol!@#$564746Lfat0[9i FDLAas090132!$@##$2354(*^78~*54sdfakl;ml;lak;j2a#$2342!@#128-reg;o[werqPWEQRioADSF1234&*(6908_)55454!";
+static_assert(sizeof(key130)==130);
+static const auto variantPrimes=[] {
+    std::array<uint32_t,64> primes{2,3};
+    for(uint32_t candidate=5,index=2,phase=1;index<primes.size();) {
+        if(candidate!=25 && candidate!=49 && candidate!=121 && candidate!=169 && candidate!=289) {
+            primes[index++]=candidate;
+        }
+        if(++phase==3) { candidate+=4;phase=1; } else { candidate+=2; }
     }
+    return primes;
+}();
+static void variant(const Bytes& h,Bytes& out,int type){
+    std::array<int64_t,32> fib{};fib[0]=fib[1]=1;for(int i=2;i<32;i++)fib[i]=fib[i-1]+fib[i-2];
     auto mod=[](int64_t x,int64_t n){return (x%n+n)%n;};
     int64_t v5=h[28]|h[29]<<8,v6=h[16],v7=h[18],v8=(v5>>8)&255;
     int64_t v9=(v7+h[28]+v6)&255,v10=(v6-v7)&255,vo=(v7|v6)&255;
@@ -64,9 +71,9 @@ static void variant(const Bytes& h,Bytes& out,int type){
     int64_t common=v12*v12+v9+v10+vo+vm+v8+v6;
     int64_t v14=key215[(common+key215[v13%215])%215]*key130[(common+key130[v13%130])%130];
     int64_t v15=key215[mod(v10*vm-v8,215)],v25=v14&511,v16=fib[(v5>>8)&31];
-    int64_t v37=(key130[v6%130]*v15)&511,v17=primes[(v6*v8)&63],v26=v16&511,v38=v17&511;
+    int64_t v37=(key130[v6%130]*v15)&511,v17=variantPrimes[(v6*v8)&63],v26=v16&511,v38=v17&511;
     int64_t v28=v24,v29=(v36*(v14&511)-v24)&511,v18=v38*key130[v38%130];
-    int64_t v27=primes[((v17&255)*key130[(v26*key215[v26%215])%130])&63]&511;
+    int64_t v27=variantPrimes[((v17&255)*key130[(v26*key215[v26%215])%130])&63]&511;
     int64_t v39=fib[((v16&255)*key215[v18%215])&31]&511,v19=((v14&511)*v39)&65535;
     int64_t v40=(v36*v19-(v17&511)*v27+v37*v37+250)&511;
     int64_t v41=(v24*v24+(v16&511)*(v16&511)-v36*v36)&511;
@@ -75,8 +82,8 @@ static void variant(const Bytes& h,Bytes& out,int type){
     int64_t v32=(v36+v24)&511,v31=(v27-v36*(v17&511))&511;
     int64_t v34=(v30+v42-(v14&511))&511,v44=(key130[v36%130]+key215[v40%215])&511;
     int64_t v33=(v29+v37)&511,v35=(v31+v33-v39)&511;
-    int64_t v45=primes[((v14&255)*(((v36&255)*(v14&255)-(v24&255)+(v37&255))&255))&63]&511;
-    int64_t v46=primes[key215[v30%215]&63]&511,v47=fib[key130[v30%130]&31]&511;
+    int64_t v45=variantPrimes[((v14&255)*(((v36&255)*(v14&255)-(v24&255)+(v37&255))&255))&63]&511;
+    int64_t v46=variantPrimes[key215[v30%215]&63]&511,v47=fib[key130[v30%130]&31]&511;
     int64_t seq[]={v24,v25,v26,v27,v28,v29,v30,v31,v32,v33,v34,v35,v36,v37,v38,v39,v40,v41,v42,v43,v44,v45,v46,v47};
     int a=seq[type-17]&65535,b=seq[type-5]&65535;
     if(a==b)return;
@@ -92,6 +99,58 @@ static void variant(const Bytes& h,Bytes& out,int type){
         int mid=(a>>1)+(b>>1);require(size_t(std::max(a,mid))<out.size(),"PDG 预处理数据被截断。");
         uint8_t v=out[a];if(mid!=a)v^=out[mid];out[a]=v-b;
     }
+}
+// Text PDG 0x1A selects its own two offsets; image-PDG indices differ.
+// Compatibility reference: Axu UVZReader 0.3.10 textTransform, checked against
+// the compressed-stream checksum and PDF payload on the supplied book.
+static void textType1A(const uint8_t* header,Bytes& payload) {
+    const uint32_t width=uint32_t(header[16]) | uint32_t(header[17])<<8;
+    const uint32_t height=uint32_t(header[18]) | uint32_t(header[19])<<8;
+    const uint32_t length=u32(header+28);
+    const uint32_t tail=uint32_t(header[94]) | uint32_t(header[95])<<8;
+    const uint32_t lowWidth=width&255, difference=(width-height)&255;
+    const uint32_t highLength=(length>>8)&255, area=(width*height)&255;
+    const uint32_t combined=(width|height)&255, product=((length>>8)*width)&255;
+    const uint32_t sum=(width+height+length)&255, mixed=(area*lowWidth+tail)&255;
+    const uint32_t first=(combined*area+product*highLength-sum*difference+250+mixed)&511;
+    const uint32_t second=(combined*combined+250+sum*difference*area-mixed*product)&511;
+    const uint32_t seed=product*product+sum+highLength+combined+difference+area+lowWidth;
+    const uint32_t multiplier=(uint32_t(key215[(key215[mixed%215]+seed)%215]) *
+                               key130[(key130[mixed%130]+seed)%130])&511;
+    // Unsigned subtraction is part of the format, including before modulo 215.
+    const uint32_t offsetSeed=(uint32_t(key130[lowWidth%130]) *
+                               key215[(difference*area-highLength)%215])&511;
+    const size_t changed=(offsetSeed+((multiplier*second-first)&511))&511;
+    const uint32_t amount=variantPrimes[(multiplier*changed)&63]&511;
+    const size_t middle=(changed>>1)+(amount>>1);
+    require(changed<payload.size() && middle<payload.size(),"文本 PDG 预处理数据被截断。");
+    payload[changed]=uint8_t((payload[changed]^(middle==changed ? 0 : payload[middle]))-amount);
+}
+static Bytes textPDF(const uint8_t* source,size_t size) {
+    require(size>=140 && source[2]==2,"不支持这种文本 PDG 头部。");
+    const size_t offset=u32(source+24),length=u32(source+28);
+    require(offset>=140 && offset<=size && length>0 && length<=size-offset,
+            "文本 PDG 数据范围异常。");
+    require(source[56]==0,"暂不支持这种文本 PDG 预处理类型。");
+    require(source[15]==0 || source[15]==0x1a,"暂不支持这种文本 PDG 编码。");
+    Bytes packed(source+offset,source+offset+length);
+    if(source[15]==0x1a) { textType1A(source,packed); }
+    if(packed.size()>=5 && !memcmp(packed.data(),"%PDF-",5)) { return packed; }
+    for(size_t capacity=1024*1024;capacity<=128*1024*1024;capacity*=2) {
+        Bytes decoded(capacity);
+        uLongf count=capacity;
+        const int status=uncompress(decoded.data(),&count,packed.data(),packed.size());
+        if(status==Z_OK) {
+            decoded.resize(count);
+            const char magic[]="%PDF-";
+            const auto start=std::search(decoded.begin(),decoded.end(),magic,magic+5);
+            require(start!=decoded.end(),"文本 PDG 中没有有效 PDF。");
+            decoded.erase(decoded.begin(),start);
+            return decoded;
+        }
+        require(status==Z_BUF_ERROR,"文本 PDG 压缩数据校验失败。");
+    }
+    throw std::runtime_error("文本 PDG 解压超过 128 MB。");
 }
 struct Bits {
     const Bytes& bytes;size_t bit=0;
@@ -166,10 +225,14 @@ extern "C" int lab_pdg_decode(const uint8_t* source,size_t size,uint8_t** output
     *output=nullptr;*length=0;
     try{
         require(source&&size>0&&size<=128*1024*1024,"PDG 页面数据大小异常。");
-        Bytes all(source,source+size),result;
-        if(size<2||source[0]!='H'||source[1]!='H'){require(image(all),"未识别的页面格式。");result=std::move(all);}
-        else{
-            if(size>=3&&all[2]==1){
+        Bytes result;
+        if(size>=4 && source[0]=='H' && source[1]=='H' && source[2]!=1 && source[3]==0x46) {
+            result=textPDF(source,size);
+        } else {
+            Bytes all(source,source+size);
+            if(size<2 || source[0]!='H' || source[1]!='H') {
+                require(image(all),"未识别的页面格式。");result=std::move(all);
+            } else if(size>=3 && all[2]==1) {
                 require(size>=56,"旧版 PDG 头部被截断。");
                 uint32_t mode=u32(all.data()+7);require(mode==0||mode==4||mode==5,"不支持这种旧版 PDG 预处理类型。");
                 require(all[14]!=0x46,"暂不支持加密旧版文本 PDG。");
@@ -177,21 +240,21 @@ extern "C" int lab_pdg_decode(const uint8_t* source,size_t size,uint8_t** output
                 if(mode){size_t skip=mode==4?1:2;require(result.size()>128+skip,"旧版 PDG 图像被截断。");result.erase(result.begin()+128,result.begin()+128+skip);}
                 if(image(result)){size_t n=u32(all.data()+28);require(n>0&&n<=result.size(),"旧版 PDG 图像长度异常。");result.resize(n);}
                 else result=bitonal(result,all[3]|all[4]<<8,all[5]|all[6]<<8);
-            }else{
-            require(size>=140,"PDG 头部被截断。");Bytes h(all.begin(),all.begin()+140);
-            require(h[21]==0,"暂不支持分层 PDG 页面。");int type=h[15];
-            require(type<=5||type==0x10||type==0x28||(type>=0x11&&type<=0x1c)||(type>=0xaa&&type<=0xac),"不支持这种 PDG 编码类型。");
-            size_t offset=u32(h.data()+24),count=u32(h.data()+28);
-            require(offset>=140&&offset<=size&&count>0&&count<=size-offset,"PDG 数据范围异常。");
-            result.assign(all.begin()+offset,all.begin()+offset+count);
-            PDGSeries::preprocess(h,result);type=h[15];
-            if(type>=0x11&&type<=0x1c)variant(h,result,type);
-            else legacy(h,result,type);
-            if(!image(result)){
-                require(h[20]!=24,"PDG 彩色页面内容未识别。");
-                int width=h[16]|h[17]<<8,height=h[18]|h[19]<<8;
-                result=bitonal(result,width,height);
-            }
+            } else {
+                require(size>=140,"PDG 头部被截断。");Bytes h(all.begin(),all.begin()+140);
+                require(h[21]==0,"暂不支持分层 PDG 页面。");int type=h[15];
+                require(type<=5||type==0x10||type==0x28||(type>=0x11&&type<=0x1c)||(type>=0xaa&&type<=0xac),"不支持这种 PDG 编码类型。");
+                size_t offset=u32(h.data()+24),count=u32(h.data()+28);
+                require(offset>=140&&offset<=size&&count>0&&count<=size-offset,"PDG 数据范围异常。");
+                result.assign(all.begin()+offset,all.begin()+offset+count);
+                PDGSeries::preprocess(h,result);type=h[15];
+                if(type>=0x11&&type<=0x1c)variant(h,result,type);
+                else legacy(h,result,type);
+                if(!image(result)){
+                    require(h[20]!=24,"PDG 彩色页面内容未识别。");
+                    int width=h[16]|h[17]<<8,height=h[18]|h[19]<<8;
+                    result=bitonal(result,width,height);
+                }
             }
         }
         *output=(uint8_t*)malloc(result.size());require(*output!=nullptr,"解码内存不足。");

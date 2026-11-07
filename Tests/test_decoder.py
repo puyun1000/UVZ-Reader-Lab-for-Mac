@@ -146,6 +146,52 @@ def main():
             assert report['chapters'][0]['page'] == 2, report
             checks.append(f'文本 PDG（压缩={compressed}）的 PDF 分页、渲染和目录页码')
 
+        # Fixed type-1A offsets from the text format reference. A stored zlib
+        # block makes the stream size exact without using the decoder to encode it.
+        text_fixtures = [
+            (4096, 0, 0, 0, 115, 107),
+            (4096, 1025, 768, 40961, 464, 2),
+            (1300, 129, 259, 0, 265, 71),  # table index 129 uses the terminating zero
+            (809, 65535, 259, 13, 52, 53),  # changed byte also occupies the middle
+        ]
+        for length, width, height, tail, changed, amount in text_fixtures:
+            expected = pdf.ljust(length - 11, b' ')
+            encoded = bytearray(zlib.compress(expected, level=0))
+            assert len(encoded) == length
+            middle = (changed >> 1) + (amount >> 1)
+            encoded[changed] = ((encoded[changed] + amount) & 255) ^ (encoded[middle] if middle != changed else 0)
+            h = header(0x1a, length, width, height, text=True)
+            struct.pack_into('<H', h, 94, tail)
+            pdg = bytes(h + encoded)
+            src = tmp / 'type1a.pdg'; dest = tmp / 'type1a.pdf'
+            src.write_bytes(pdg)
+            result = command('--decode-page', src, dest)
+            assert result.returncode == 0, result.stderr
+            assert dest.read_bytes() == expected
+        checks.append('0x1A 文本 PDG 按 PDF 变换还原原字节，覆盖 16 位头字段和重叠位置')
+
+        path = tmp / 'segments.uvz'
+        with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('3_2.pdg', pdg)
+            archive.writestr('1_2.pdg', pdg)
+            archive.writestr('BookContents.dat', '第二分段|01|3|0|6'.encode())
+        result = command('--verify', path)
+        assert result.returncode == 0, result.stderr
+        report = json.loads(result.stdout)
+        assert report['pageCount'] == report['renderedPages'] == 4
+        assert [p['number'] for p in report['pages']] == [1, 2, 3, 4]
+        assert report['chapters'][0]['page'] == 3
+        checks.append('UVZ 多个 0x1A 分段依页码展开并定位目录')
+
+        broken = bytearray(pdg)
+        broken[-1] ^= 1
+        src.write_bytes(broken)
+        assert command('--decode-page', src, dest).returncode != 0
+        h = header(0x1a, 2, text=True)
+        src.write_bytes(h + b'xx')
+        assert command('--decode-page', src, dest).returncode != 0
+        checks.append('0x1A 拒绝错误的 zlib 校验值和越界变换')
+
         src = tmp / 'bad.pdg'; dest = tmp / 'bad.png'
         for change in [lambda h: struct.pack_into('<I', h, 24, 0xffffffff), lambda h: h.__setitem__(56, 1), lambda h: h.__setitem__(15, 0xff)]:
             h = header(0, len(payload)); change(h); src.write_bytes(h + payload)

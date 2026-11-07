@@ -140,10 +140,13 @@ final class BookArchive {
             let entry = entries[page.entry]
             let head = try Self.prefix(entry, from: bytes)
             if head.starts(with: Data("%PDF-".utf8)) || (head.count >= 4 && head[0] == 0x48 && head[1] == 0x48 && head[2] != 1 && head[3] == 0x46) {
-                let decoded = try PageDecoder.decodedData(Self.read(entry, from: bytes))
-                guard let document = PDFDocument(data: decoded), !document.isLocked, document.pageCount > 0 else { throw ReaderFailure("无法读取文本 PDG 的 PDF 页面。") }
-                guard document.pageCount <= 100_000 - pages.count else { throw ReaderFailure("书籍总页数超出限制。") }
-                for i in 0..<document.pageCount {
+                let count = try autoreleasepool {
+                    let decoded = try PageDecoder.decodedData(Self.read(entry, from: bytes))
+                    guard let document = PDFDocument(data: decoded), !document.isLocked, document.pageCount > 0 else { throw ReaderFailure("无法读取文本 PDG 的 PDF 页面。") }
+                    return document.pageCount
+                }
+                guard count <= 100_000 - pages.count else { throw ReaderFailure("书籍总页数超出限制。") }
+                for i in 0..<count {
                     pages.append(BookPage(entry: page.entry, name: page.name, key: page.key, pdfPage: i))
                 }
             } else { pages.append(page) }
@@ -211,13 +214,12 @@ final class BookArchive {
         guard pages.indices.contains(index) else {return nil}
         if let loose {return try loose.vectorPage(at:index)}
         guard let number=pages[index].pdfPage else {return nil}
-        let data=try pageData(at:index)
         pdfLock.lock();defer{pdfLock.unlock()}
         let key=NSNumber(value:pages[index].entry)
         let doc:PDFDocument
         vectorDocuments.countLimit=8
         if let cached=vectorDocuments.object(forKey:key) {doc=cached}
-        else {guard let parsed=PDFDocument(data:data) else{return nil};vectorDocuments.setObject(parsed,forKey:key);doc=parsed}
+        else {guard let parsed=PDFDocument(data:try pageData(at:index)) else{return nil};vectorDocuments.setObject(parsed,forKey:key);doc=parsed}
         return doc.page(at:number)
     }
     func pageImage(at index: Int) throws -> CGImage {
