@@ -1,6 +1,6 @@
 # 版本历史与下载
 
-核查日期：2026-11-06。此页将历史入口集中列出；每次变化见[完整更新记录](../CHANGELOG.md)，原始发行文件位于[GitHub Releases](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases)。
+核查日期：2026-11-07。此页将历史入口集中列出；每次变化见[完整更新记录](../CHANGELOG.md)，原始发行文件位于[GitHub Releases](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases)。
 
 ## 1. 版本清单
 
@@ -8,6 +8,7 @@
 
 | 版本／开发阶段 | 归档状态 | 下载与记录 |
 | --- | --- | --- |
+| 0.22.0 · 2026.11.07 | 安装包、源码及验证记录 | [发行说明](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.22.0) · [源码](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/tree/v0.22.0) |
 | 0.21.0 · 2026.11.06 | 安装包、源码及验证记录 | [发行说明](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.21.0) · [源码](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/tree/v0.21.0) |
 | 0.20.0 · 2026.11.02 | 安装包、源码及验证记录 | [发行说明](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.20.0) · [源码](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/tree/v0.20.0) |
 | 0.19.1 · 2026.10.31 | 安装包、源码及验证记录 | [发行说明](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.19.1) · [源码](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/tree/v0.19.1) |
@@ -44,4 +45,4 @@
 
 本地旧包只在远端已公开、逐个文件大小与SHA-256核对一致、源码标签匹配且历史索引已记录后清理。未上传的版本、草稿或唯一副本先保留并补档。不得删除或覆盖旧Release附件、旧标签或Git历史。清理缓存不等于清理版本历史。
 
-历史发行文件与标签保持原样；最新应用为0.21.0。
+历史发行文件与标签保持原样；最新应用为0.22.0。
