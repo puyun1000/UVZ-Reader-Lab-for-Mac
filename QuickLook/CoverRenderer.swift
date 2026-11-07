@@ -4,7 +4,7 @@ import PDFKit
 /// Read-only and shared by both system extensions. No app process or OCR is started.
 enum CoverRenderer {
     static func image(at url: URL) throws -> CGImage {
-        guard url.pathExtension.lowercased() == "uvz" else { throw ReaderFailure("此预览扩展用于 UVZ 图书。") }
+        guard ["uvz","pdz"].contains(url.pathExtension.lowercased()) else { throw ReaderFailure("此预览扩展用于 UVZ 图书。") }
         let book = try BookArchive(url: url)
         let covers = book.pages.indices.filter { book.pages[$0].key.group == 0 }
         let candidates = Array((covers.isEmpty ? Array(book.pages.indices.prefix(3)) : Array(covers.prefix(3))))

@@ -129,8 +129,8 @@ final class ConversionWindow: NSObject,NSWindowDelegate,NSTableViewDataSource,NS
                     let values=try url.resourceValues(forKeys:[.isDirectoryKey,.isSymbolicLinkKey]);guard values.isSymbolicLink != true else{throw ReaderFailure("跳过符号链接。")}
                     if values.isDirectory == true {
                         if try FileManager.default.contentsOfDirectory(at:url,includingPropertiesForKeys:nil).contains(where:{$0.pathExtension.lowercased() == "pdg"}) {found.append(url)}
-                        else {found += try BatchNaming.discover(url,recursive:true)}
-                    } else if supportedBookExtensions.contains(url.pathExtension.lowercased()) {found.append(url)}
+                        else {found += try BatchNaming.discover(url,recursive:true,extensions:BatchNaming.bookExtensions.union(["pdz"]))}
+                    } else if url.pathExtension.lowercased() != "epub",supportedBookExtensions.contains(url.pathExtension.lowercased()) {found.append(url)}
                     else {issues.append(url.lastPathComponent+"：本版转换尚不支持该格式。")}
                 } catch {issues.append(url.lastPathComponent+"："+error.localizedDescription)}
             }

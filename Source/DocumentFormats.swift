@@ -4,7 +4,7 @@ import ImageIO
 import CryptoKit
 import Darwin
 
-let supportedBookExtensions = ["zip", "uvz", "pdg", "pdf", "djvu", "djv", "tif", "tiff"]
+let supportedBookExtensions = ["zip", "uvz", "pdz", "epub", "pdg", "pdf", "djvu", "djv", "tif", "tiff"]
 func acceptsBookURL(_ url: URL) -> Bool {
     var directory: ObjCBool = false
     return supportedBookExtensions.contains(url.pathExtension.lowercased()) ||
@@ -37,7 +37,7 @@ final class LooseBook {
     let nativeDigest: Data
     static func accepts(_ url: URL) -> Bool {
         var directory: ObjCBool = false
-        return !["zip", "uvz"].contains(url.pathExtension.lowercased()) ||
+        return !["zip", "uvz", "pdz"].contains(url.pathExtension.lowercased()) ||
             (FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) && directory.boolValue)
     }
     init(url: URL) throws {

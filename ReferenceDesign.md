@@ -98,3 +98,11 @@ PDF、DjVu目录改为原生书签回写，取代此前仅在本应用中生效�
 - PDZ 证书、加密文本 PDG 与分层 JPEG 解码尚未纳入本版。阅读配色、裁边和连续预读仍沿用本项目现有实现。
 
 0.22.0 参考阿虚 0.3.10 中的文本 PDG 变换索引说明，独立实现并用原书验证了 `0x1A` 分支。该编码号与扫描图像分支共用编号，文本的索引计算和数据校验方式有区别。
+
+## 0.23.0 格式与阅读补充
+
+PDZ 容器使用用户提供的阿虚 0.3.11 源码作适配，来源文件与署名保留在 ThirdParty/Axu。密码库接口改为 macOS CommonCrypto，保留证书类型、有效期、CRC 和数据范围校验。测试覆盖四种构造容器，尚缺真实 PDZ 图书验证。
+
+文本 PDG 的变换字段和 JPEG 矩形覆盖层参考同一版本源码，扩展本项目原有解码路径。DjVu 继续使用现有 DjVuLibre 与 JPEG 支持。阅读自动对比度、亮度、Gamma、护眼色沿用本项目原生界面，并参考老马工具的显示调整思路。
+
+EPUB 章节阅读独立实现，结构解析参考 W3C EPUB 3.3 与 Apple WebKit 的公开规范。提供基本章节阅读和目录跳转，未声称完整 EPUB 阅读系统合规。参考文档见 [W3C EPUB Reading Systems](https://www.w3.org/TR/epub-rs-33/) 和 [Apple WKURLSchemeHandler](https://developer.apple.com/documentation/webkit/wkurlschemehandler)。

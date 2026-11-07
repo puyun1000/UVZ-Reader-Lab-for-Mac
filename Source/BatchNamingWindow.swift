@@ -1,9 +1,12 @@
 import AppKit
+import PDFKit
 
 final class NamingSourceWindow: NSObject, NSWindowDelegate {
     let window = ChineseWindow(contentRect:NSRect(x:0,y:0,width:1080,height:760),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
     let chooser = NSPopUpButton(), image = PageProofImageView(), text = ChineseTextView()
     let imageScroll = NSScrollView()
+    let pdfView=PDFView()
+    private var automaticFit=true
     private let url: URL, proposal: NamingProposal
     private let queue = OperationQueue()
     private var generation = UUID(), closed = false
@@ -16,40 +19,76 @@ final class NamingSourceWindow: NSObject, NSWindowDelegate {
         imageScroll.scrollerStyle = .overlay; imageScroll.documentView = image; imageScroll.hasVerticalScroller = true; imageScroll.hasHorizontalScroller = true; imageScroll.autohidesScrollers = true; imageScroll.allowsMagnification = true; imageScroll.minMagnification = 0.05; imageScroll.maxMagnification = 4; imageScroll.borderType = .bezelBorder
         imageScroll.widthAnchor.constraint(greaterThanOrEqualToConstant:350).isActive = true
         let scroll = ocrTextScroll(text,editable:false)
-        let split = NSSplitView(); split.isVertical = true; split.dividerStyle = .thin; split.addArrangedSubview(imageScroll); split.addArrangedSubview(scroll); scroll.widthAnchor.constraint(greaterThanOrEqualToConstant:320).isActive = true
+        let preview=NSView()
+        for view in [imageScroll,pdfView] {
+            view.translatesAutoresizingMaskIntoConstraints=false;preview.addSubview(view)
+            NSLayoutConstraint.activate([view.leadingAnchor.constraint(equalTo:preview.leadingAnchor),view.trailingAnchor.constraint(equalTo:preview.trailingAnchor),view.topAnchor.constraint(equalTo:preview.topAnchor),view.bottomAnchor.constraint(equalTo:preview.bottomAnchor)])
+        }
+        pdfView.isHidden=true;pdfView.displayMode = .singlePage;pdfView.displayBox = .cropBox;pdfView.autoScales=true
+        pdfView.minScaleFactor=0.01;pdfView.maxScaleFactor=40
+        let split = NSSplitView(); split.isVertical = true; split.dividerStyle = .thin; split.addArrangedSubview(preview); split.addArrangedSubview(scroll); scroll.widthAnchor.constraint(greaterThanOrEqualToConstant:320).isActive = true
         let close = NSButton(title:"关闭",target:self,action:#selector(closeWindow)); close.bezelStyle = .rounded
         let fit = NSButton(title:"适合整页",target:self,action:#selector(fitPage)), minus = NSButton(title:"缩小",target:self,action:#selector(zoomOut)), plus = NSButton(title:"放大",target:self,action:#selector(zoomIn))
         for button in [fit,minus,plus] { button.bezelStyle = .rounded }
         chooser.setContentCompressionResistancePriority(.defaultLow,for:.horizontal)
-        let row = NSStackView(views:[chooser,NSView(),minus,plus,fit,close]); row.spacing = 10
+        let width=NSButton(title:"适合宽度",target:self,action:#selector(fitWidth));width.bezelStyle = .rounded
+        let row = NSStackView(views:[chooser,NSView(),minus,plus,width,fit,close]); row.spacing = 10
         let root = NSStackView(views:[row,split]); root.orientation = .vertical; root.alignment = .leading; root.spacing = 12
         let host = NSView(); window.contentView = host; root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo:host.leadingAnchor,constant:16),root.trailingAnchor.constraint(equalTo:host.trailingAnchor,constant:-16),root.topAnchor.constraint(equalTo:host.topAnchor,constant:16),root.bottomAnchor.constraint(equalTo:host.bottomAnchor,constant:-16),row.widthAnchor.constraint(equalTo:root.widthAnchor),split.widthAnchor.constraint(equalTo:root.widthAnchor)])
         queue.maxConcurrentOperationCount = 1; queue.qualityOfService = .userInitiated
     }
-    func show(on parent: NSWindow) { NativeDialog.present(window,on:parent); window.contentView?.layoutSubtreeIfNeeded(); (imageScroll.superview as? NSSplitView)?.setPosition(window.contentView!.bounds.width*0.52,ofDividerAt:0); pageChanged() }
+    func show(on parent: NSWindow) { NativeDialog.present(window,on:parent); window.contentView?.layoutSubtreeIfNeeded(); (imageScroll.superview?.superview as? NSSplitView)?.setPosition(window.contentView!.bounds.width*0.52,ofDividerAt:0); pageChanged() }
     @objc func pageChanged() {
         guard proposal.pages.indices.contains(chooser.indexOfSelectedItem) else { return }
-        let page = proposal.pages[chooser.indexOfSelectedItem], token = UUID(); generation = token; queue.cancelAllOperations(); image.image = nil; text.string = page.text
+        let page = proposal.pages[chooser.indexOfSelectedItem], token = UUID(); generation = token; queue.cancelAllOperations(); image.image = nil;pdfView.document=nil; text.string = page.text
         queue.addOperation { [weak self,url,proposal] in
-            let result = Result { () throws -> CGImage in
+            let result = Result { () throws -> (CGImage,PDFPage?,PDFDocument?) in
                 guard try BatchNaming.fingerprint(url) == proposal.fingerprint else { throw ReaderFailure("图书已变化，请重新分析。") }
-                return try NamingSource(url).image(at:page.physical-1)
+                let source=try NamingSource(url)
+                let vector=try source.vectorPage(at:page.physical-1)
+                return (try source.image(at:page.physical-1),vector,vector?.document)
             }
             DispatchQueue.main.async {
                 guard let self,!self.closed,self.generation == token else { return }
-                switch result { case .success(let cg): self.image.image = NSImage(cgImage:cg,size:NSSize(width:cg.width,height:cg.height)); self.image.frame = CGRect(x:0,y:0,width:cg.width,height:cg.height); self.fitPage()
+                switch result { case .success(let (cg,pdf,document)):
+                    self.pdfView.isHidden=pdf==nil;self.imageScroll.isHidden=pdf != nil
+                    if let pdf {self.pdfView.document=document;self.pdfView.go(to:pdf)}
+                    self.image.image = NSImage(cgImage:cg,size:NSSize(width:cg.width,height:cg.height)); self.image.frame = CGRect(x:0,y:0,width:cg.width,height:cg.height); self.fitPage()
                 case .failure(let error): self.text.string = error.localizedDescription+"\n\n原识别文字：\n"+page.text }
             }
         }
     }
     @objc func fitPage() {
-        guard let size = image.image?.size,size.width>0,size.height>0 else { return }
-        let available = imageScroll.contentView.frame.size
-        imageScroll.setMagnification(max(imageScroll.minMagnification,min(available.width/size.width,available.height/size.height)),centeredAt:CGPoint(x:size.width/2,y:size.height/2))
+        automaticFit=true
+        if !pdfView.isHidden {
+            pdfView.autoScales=true
+            pdfView.scaleFactor=pdfView.scaleFactorForSizeToFit
+            return
+        }
+        guard let size=image.image?.size,size.width>0,size.height>0 else{return}
+        let available=imageScroll.contentSize
+        imageScroll.setMagnification(min(imageScroll.maxMagnification,max(imageScroll.minMagnification,min(available.width/size.width,available.height/size.height))),centeredAt:CGPoint(x:size.width/2,y:size.height/2))
     }
-    @objc func zoomIn() { imageScroll.magnification = min(imageScroll.maxMagnification,imageScroll.magnification*1.4) }
-    @objc func zoomOut() { imageScroll.magnification = max(imageScroll.minMagnification,imageScroll.magnification/1.4) }
+    @objc func fitWidth() {
+        automaticFit=false
+        if !pdfView.isHidden,let page=pdfView.currentPage {
+            pdfView.autoScales=false;pdfView.scaleFactor=pdfView.bounds.width/max(1,page.bounds(for:.cropBox).width)
+        } else if let size=image.image?.size {
+            imageScroll.magnification=min(imageScroll.maxMagnification,imageScroll.contentSize.width/max(1,size.width))
+        }
+    }
+    @objc func zoomIn() {
+        automaticFit=false
+        if !pdfView.isHidden {pdfView.autoScales=false;pdfView.zoomIn(nil)}
+        else {imageScroll.magnification=min(imageScroll.maxMagnification,imageScroll.magnification*1.4)}
+    }
+    @objc func zoomOut() {
+        automaticFit=false
+        if !pdfView.isHidden {pdfView.autoScales=false;pdfView.zoomOut(nil)}
+        else {imageScroll.magnification=max(imageScroll.minMagnification,imageScroll.magnification/1.4)}
+    }
+    func windowDidResize(_ notification:Notification) {if automaticFit {fitPage()}}
     @objc func closeWindow() { closed = true; generation = UUID(); queue.cancelAllOperations(); NativeDialog.dismiss(window); onClosed?() }
     func windowShouldClose(_ sender: NSWindow) -> Bool { closeWindow(); return false }
 }

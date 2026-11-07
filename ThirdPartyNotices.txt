@@ -79,3 +79,8 @@ No license to the original Windows applications is asserted.
 Both Quick Look extensions now include their own unmodified DjVuLibre ddjvu
 helper. The full GPL source, license and build script remain included in the
 containing app Resources/DjVuLibre and the source distribution.
+
+----------------------
+PDZ container compatibility adapted from Axu UVZReader macOS 0.3.11, supplied by the user.
+Author: Axu. Source and adaptation notes are retained in ThirdParty/Axu.
+The macOS adapter uses system CommonCrypto. The source attribution for this component is separate from the 100apps MIT notice above.

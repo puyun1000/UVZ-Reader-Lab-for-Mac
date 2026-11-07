@@ -16,6 +16,10 @@ private func inflateZlib(_ source: UnsafePointer<UInt8>, _ count: Int,
 @_silgen_name("lab_inflate_prefix")
 private func inflatePrefix(_ source: UnsafePointer<UInt8>, _ count: Int, _ destination: UnsafeMutablePointer<UInt8>, _ capacity: Int) -> Int
 
+@_silgen_name("pdz_to_uvz")
+private func decodePDZ(_ source:UnsafePointer<UInt8>,_ count:Int,_ output:UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,_ length:UnsafeMutablePointer<Int>,_ error:UnsafeMutablePointer<CChar>,_ capacity:Int)->Int32
+@_silgen_name("lab_pdg_free")
+private func freePDZ(_ bytes:UnsafeMutableRawPointer)
 struct ReaderFailure: LocalizedError {
     let message: String
     var errorDescription: String? { message }
@@ -96,6 +100,7 @@ final class BookArchive {
     let chapters: [BookChapter]
     let contentsNotice: String?
     private let bytes: Data
+    let isPDZ:Bool
     private let entries: [ArchiveEntry]
     private var loose: LooseBook?
     private var archiveFolder = ""
@@ -107,14 +112,24 @@ final class BookArchive {
 
     init(url: URL) throws {
         self.url = url.standardizedFileURL
+        guard url.pathExtension.lowercased() != "epub" else{throw ReaderFailure("EPUB 请在章节阅读窗口打开。")}
         if LooseBook.accepts(url) {
             let source = try LooseBook(url: url)
-            loose = source; bytes = Data(); entries = []
+            loose = source; bytes = Data(); entries = [];isPDZ=false
             pages = source.pages; title = source.title; metadata = source.metadata
             chapters = source.chapters; hasElectronicContents = source.hasContents; contentsNotice = source.notice
             return
         }
-        let bytes = try Data(contentsOf: url, options: .mappedIfSafe)
+        let original = try Data(contentsOf: url, options: .mappedIfSafe)
+        isPDZ=original.starts(with:Data("%pdg".utf8))
+        let bytes:Data
+        if isPDZ {
+            guard original.count<=512*1024*1024 else{throw ReaderFailure("PDZ 文件超过 512 MB。")}
+            var output:UnsafeMutablePointer<UInt8>?,length=0,error=[CChar](repeating:0,count:512)
+            let code=original.withUnsafeBytes { raw in decodePDZ(raw.baseAddress!.assumingMemoryBound(to:UInt8.self),original.count,&output,&length,&error,error.count) }
+            guard code==0,let output else{throw ReaderFailure(String(cString:error))}
+            bytes=Data(bytesNoCopy:output,count:length,deallocator:.custom {pointer,_ in freePDZ(pointer)})
+        } else {bytes=original}
         let entries = try Self.readDirectory(bytes)
         for at in stride(from: bytes.count - 22, through: max(0, bytes.count - 65_557), by: -1) {
             if try bytes.u32(at) == 0x06054b50, at + 22 + Int(try bytes.u16(at + 20)) == bytes.count {
@@ -182,7 +197,7 @@ final class BookArchive {
         self.chapters = chapters
         self.contentsNotice = notice
         self.bytes = bytes
-        sourceDigest = Data(SHA256.hash(data: bytes))
+        sourceDigest = Data(SHA256.hash(data: original))
         self.entries = entries
         self.pages = pages
         self.metadata = metadata
@@ -333,7 +348,7 @@ final class BookArchive {
         return text
     }
 
-    private static func readDirectory(_ data: Data) throws -> [ArchiveEntry] {
+    static func readDirectory(_ data: Data) throws -> [ArchiveEntry] {
         guard data.count >= 22 else { throw ReaderFailure("文件过短，不是完整的 ZIP / UVZ。") }
         var eocd: Int?
         for at in stride(from: data.count - 22, through: max(0, data.count - 65_557), by: -1) {
@@ -370,7 +385,7 @@ final class BookArchive {
         return result
     }
 
-    private static func read(_ entry: ArchiveEntry, from data: Data) throws -> Data {
+    static func read(_ entry: ArchiveEntry, from data: Data) throws -> Data {
         guard entry.flags & 1 == 0 else { throw ReaderFailure("实验版暂不支持带密码的压缩包。") }
         guard entry.method == 0 || entry.method == 8 else { throw ReaderFailure("不支持的 ZIP 压缩方式：\(entry.method)。") }
         guard entry.size <= maxEntryBytes, entry.packedSize <= maxEntryBytes else { throw ReaderFailure("单个页面超出 128 MB 限制。") }
@@ -460,6 +475,7 @@ extension BookArchive {
     var usesPDGNumbering: Bool { loose == nil || loose?.kind == "folder" || loose?.kind == "pdg" }
     /// Saves both DAT files as one ZIP replacement, retaining compressed page bytes unchanged.
     @discardableResult func saveEdits(_ draft: BookEditDraft, backup: Bool = false, preserveDates: Bool = true, writeContents: Bool = true, writeInfo: Bool = true) throws -> [URL] {
+        guard !isPDZ else{throw ReaderFailure("PDZ 以只读方式打开，可在转换工作台另存为 PDF。")}
         if storesNativeInformation,let loose {
             if !writeContents && !writeInfo {return []}
             let chapters=writeContents ? try draft.validated(for:self) : nil
@@ -669,6 +685,7 @@ extension BookArchive {
     }
     /// Preflight both names, move companion metadata together, then save metadata only.
     func updateInformation(stem: String, metadata: [String: String]?, backup: Bool = false, preserveDates: Bool = true) throws -> URL {
+        guard !isPDZ else{throw ReaderFailure("PDZ 当前支持阅读和转换，书目信息请在输出 PDF 中编辑。")}
         let destination = canRename ? try renameDestination(stem: stem) : url
         if let metadata { var draft = BookEditDraft(book: self); draft.metadata = metadata; _ = try draft.encodedInfo() }
         // Check the original snapshot before reopening under a new name. Reopening first
@@ -765,7 +782,7 @@ struct PageCorrectionPlan {
     }
 }
 extension BookArchive {
-    var canCorrectPages: Bool { loose == nil || loose?.kind == "folder" }
+    var canCorrectPages: Bool { !isPDZ && (loose == nil || loose?.kind == "folder") }
     func contentsData() throws -> Data? {
         if let loose { return loose.storedMetadata["bookcontents.dat"] }
         return try entries.first { ($0.name as NSString).lastPathComponent.lowercased() == "bookcontents.dat" && ($0.name as NSString).deletingLastPathComponent == archiveFolder }.map { try Self.read($0,from:bytes) }

@@ -1,13 +1,17 @@
-# UVZ Reader Lab 0.22.0
+# UVZ Reader Lab 0.23.0
 
-独立实现的原生macOS扫描图书阅读与整理应用。支持UVZ／ZIP、PDG及PDG文件夹、PDF、DjVu和多页TIFF。适用于Apple芯片Mac、macOS14及以上；当前使用临时签名，未经Apple公证。
+独立实现的原生macOS扫描图书阅读与整理应用。支持UVZ／ZIP、PDZ、EPUB、PDG及PDG文件夹、PDF、DjVu和多页TIFF。适用于Apple芯片Mac、macOS14及以上；当前使用临时签名，未经Apple公证。
 
 **历史版本：[版本历史与下载](Docs/VersionHistory.md) · [每次更新记录](CHANGELOG.md) · [全部发行版](https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases)**。原包、仅源码和仅文字记录分别标明；历史附件长期保留。
 
 ## 本版变化
 
-- 支持 `0x1A` 文本 PDG。UVZ／ZIP 内的多页 PDF 分段按页码展开，阅读时使用 PDF 矢量绘制。
-- 翻页时复用已解码的分段，减少大分段的重复解压。保留 ZIP 完整性和文本 PDG 压缩数据校验。
+- 加入 PDZ 容器阅读、预览与 PDF 转换，保留证书有效期和完整性校验。
+- 加入 EPUB 章节阅读窗口，支持 EPUB 2 NCX、EPUB 3 导航目录、章节切换、文字缩放、护眼色和章节恢复。
+- 扩展文本 PDG 的 0x11—0x1C、0xAA—0xAC 分支，补齐预处理和图像 PDG 的 JPEG 矩形覆盖层、明文 DjVu 页面。
+- 阅读增加自动对比度，图像调整提供亮度、对比度和 Gamma。护眼色可设为默认，显示调整按书保存。
+- 在线目录自动使用当前书籍 SS 号，切换书籍后更新；获取结果可直接添加到独立目录编辑窗口。
+- 修复部分印前 PDF 在原图核对中缩得过小。使用成书裁切框、矢量预览和适合宽度，识别图像也按成书区域生成。
 
 阅读器保留单页／双页／连续显示、首页单独、从右至左、裁边、OCR与目录框选识别、独立目录编辑、页面编码校对、图书信息及重命名等功能。
 
@@ -25,7 +29,7 @@
 
 使用macOS自带命令行开发工具运行 `./build.sh`，输出应用包及应用ZIP；运行时无需Python或Homebrew。DjVuLibre许可与对应源码随包提供。
 
-`Tests/`包含归档与解码、格式、目录、信息保存、页面地址、编码纠正、书目解析及批量改名测试。`--naming-model-tests`验证字段推荐和格式管理；`QuickLook/Tests/PreviewControllerTests.swift`验证多页预览控制器。发布验证结果见[验证摘要](Docs/Validation-0.22.0.md)。
+`Tests/`包含归档与解码、格式、目录、信息保存、页面地址、编码纠正、书目解析及批量改名测试。`--naming-model-tests`验证字段推荐和格式管理；`QuickLook/Tests/PreviewControllerTests.swift`验证多页预览控制器。发布验证结果见[验证摘要](Docs/Validation-0.23.0.md)。
 
 图书信息推荐依赖本机OCR和规则，不能替代人工书目核对。单一冲突来源、书法竖排、模糊扫描、多个丛书／ISBN及多卷合订仍可能无法准确分解。批量执行逐本完成，尚不提供执行后整批撤销。
 
@@ -33,7 +37,7 @@
 
 **网友阿虚开发的 macOS「UVZ阅读器」是本项目开发的基础和首要参考。** 感谢阿虚制作并持续更新这款应用；UVZ Reader Lab 从它的阅读体验与功能出发，按本项目的需求独立实现。用户于2026-10-19提供的版本记录表明，阿虚的应用已更新至 0.2.1；本项目早期研究记录对应较早的 0.1.9 版，后续持续跟进其更新进展。
 
-也感谢网上读书园地的**stronghorse（老马）**开发的系列 Windows 工具：[UnicornViewer、Pdg2Pic、PdgCntEditor、PdgRenamer、PdgThumbViewer](https://www.cnblogs.com/stronghorse/) 等。它们的作者说明帮助本项目理解 PDG 页面分类、目录编辑与阅读导航；具体参考范围见[设计参考记录](ReferenceDesign.md)。本项目没有打包阿虚或老马的应用程序、代码及界面资源。实际改编或随包使用的第三方代码和工具另见[第三方声明](ThirdPartyNotices.txt)。
+也感谢网上读书园地的**stronghorse（老马）**开发的系列 Windows 工具：[UnicornViewer、Pdg2Pic、PdgCntEditor、PdgRenamer、PdgThumbViewer](https://www.cnblogs.com/stronghorse/) 等。它们的作者说明帮助本项目理解 PDG 页面分类、目录编辑与阅读导航；具体参考范围见[设计参考记录](ReferenceDesign.md)。本项目沿用独立原生界面，未打包参考应用的可执行程序及界面资源。0.23.0 的 PDZ 容器适配来自阿虚 0.3.11 源码，具体来源见 ThirdParty/Axu。实际改编或随包使用的第三方代码和工具另见[第三方声明](ThirdPartyNotices.txt)。
 
 
 转换工作台流程参考PDG2PDF for Mac；在线辅助查询参考Wenbin Fan的[读秀工具](https://wbfan.site/duxiu/)。均为独立实现，没有复制这些应用或网站的代码及图像资源。

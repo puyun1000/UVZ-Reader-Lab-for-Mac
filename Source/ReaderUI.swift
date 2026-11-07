@@ -45,6 +45,11 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private(set) var renameSheet: RenameSheet?
     private let rtlButton = NSButton(checkboxWithTitle: "从右至左", target: nil, action: nil)
     private let fitPopup = NSPopUpButton()
+    private let automaticContrast = NSButton(checkboxWithTitle:"自动对比度",target:nil,action:nil)
+    private let adjustmentValues=(0..<3).map {_ in CenteredTextField(labelWithString:"")}
+    private let brightnessSlider = NSSlider(value:0,minValue:-0.5,maxValue:0.5,target:nil,action:nil)
+    private let contrastSlider = NSSlider(value:1,minValue:0.25,maxValue:3,target:nil,action:nil)
+    private let gammaSlider = NSSlider(value:1,minValue:0.25,maxValue:4,target:nil,action:nil)
     private let colorPopup = NSPopUpButton()
     private let zoomSlider = NSSlider(value: 1, minValue: 0.25, maxValue: 4, target: nil, action: nil)
     private let zoomLabel = CenteredTextField(labelWithString: "100%")
@@ -52,14 +57,27 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private var stateKey = ""
     private(set) var onlineReferences: OnlineReferences?
     @objc func showOnlineReferences() {
-        if let existing=onlineReferences {existing.show();return}
-        let source=book,controller=OnlineReferences(ssid:book.map {FilenameDraft(book:$0).ss} ?? "");onlineReferences=controller
-        if let source {controller.onDirectory = {[weak self] text in
-            guard let self,self.book === source else{return false}
-            if self.editor == nil {self.showBookEditor(info:false)}
-            return self.editor?.insertReferenceContents(text) ?? false
-        }}
-        controller.onClosed = {[weak self] in self?.onlineReferences=nil};controller.show()
+        if let existing=onlineReferences {existing.show(on:window);return}
+        let source=book
+        let controller=OnlineReferences(ssid:book.map {FilenameDraft(book:$0).ss} ?? "")
+        onlineReferences=controller
+        if let source {
+            controller.window.title="在线目录与封面 — "+source.title
+            controller.onDirectory = {[weak self,weak controller] text in
+                guard let self,let controller,self.book === source else{return false}
+                NativeDialog.dismiss(controller.window)
+                if self.editor == nil {self.showBookEditor(info:false)}
+                guard let editor=self.editor,editor.insertReferenceContents(text) else {
+                    controller.show(on:self.window)
+                    return false
+                }
+                controller.close()
+                editor.window.makeKeyAndOrderFront(nil)
+                return true
+            }
+        }
+        controller.onClosed = {[weak self] in self?.onlineReferences=nil}
+        controller.show(on:window)
     }
     private(set) var editor: BookEditor?
     private(set) var pageRepair: PageRepairWindow?
@@ -222,7 +240,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         layoutButtons.setAccessibilityLabel("页面显示方式")
         rtlButton.target = self; rtlButton.action = #selector(directionChanged)
         fitPopup.addItems(withTitles: ["适合宽度", "适合整页", "适合高度", "原始大小"]); fitPopup.target = self; fitPopup.action = #selector(fitChanged)
-        colorPopup.addItems(withTitles: ["跟随系统", "原色", "反色"]); colorPopup.target = self; colorPopup.action = #selector(colorChanged)
+        colorPopup.addItems(withTitles: ["跟随系统", "原色", "反色", "护眼色"]); colorPopup.target = self; colorPopup.action = #selector(colorChanged)
         zoomSlider.target = self; zoomSlider.action = #selector(zoomChanged); zoomSlider.isContinuous = false
         zoomSlider.widthAnchor.constraint(equalToConstant: 100).isActive = true
         zoomLabel.widthAnchor.constraint(equalToConstant: 43).isActive = true; zoomLabel.alignment = .right
@@ -235,12 +253,23 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         smaller.setAccessibilityLabel("缩小页面");larger.setAccessibilityLabel("放大页面")
         for (button,title,action,symbol) in [(fitWidthButton,"适合宽度",#selector(fitWidth),"arrow.left.and.right"),(fitHeightButton,"适合高度",#selector(fitHeight),"arrow.up.and.down"),(fitWholeButton,"适合整页",#selector(fitWhole),"doc.viewfinder")] {button.target=self;button.action=action;button.bezelStyle = .rounded;button.image=NSImage(systemSymbolName:symbol,accessibilityDescription:title);button.imagePosition = .imageLeading;button.toolTip=title;button.setAccessibilityLabel(title);button.setButtonType(.toggle)}
         defaultColorButton.target=self;defaultColorButton.action = #selector(setDefaultPageColor);defaultColorButton.bezelStyle = .rounded;defaultColorButton.toolTip="将当前配色记为默认，后续打开图书使用此配色"
-        toolbar.groups = [group([contents,open,close]),group([previous,pageTypePopup,pageField,countLabel,next]),group([layoutButtons]),group([fitWidthButton,fitHeightButton,fitWholeButton]),group([smaller,zoomLabel,larger]),group([coverButton,rtlButton]),group([colorPopup,defaultColorButton]),group([options,conversion])]
+        toolbar.groups = [group([contents,open,close]),group([previous,pageTypePopup,pageField,countLabel,next]),group([layoutButtons]),group([fitWidthButton,fitHeightButton,fitWholeButton]),group([smaller,zoomLabel,larger]),group([coverButton,rtlButton]),group([colorPopup,defaultColorButton,automaticContrast]),group([options,conversion])]
         readingControls = [close,previous,next,pageTypePopup,pageField,modePopup,layoutButtons,coverButton,rtlButton,fitPopup,colorPopup,zoomSlider,whole,width,smaller,larger,options,fitWidthButton,fitHeightButton,fitWholeButton,defaultColorButton]
+        automaticContrast.target=self;automaticContrast.action = #selector(adjustDisplay)
         let rotate=button("旋转90°",#selector(rotatePage),symbol:"rotate.right"),cropMore=button("增加裁边",#selector(cropMore)),cropLess=button("减小裁边",#selector(cropLess))
         readingControls += [rotate,cropMore,cropLess]
         let title=CenteredTextField(labelWithString:"阅读显示");title.font = .systemFont(ofSize:15,weight:.semibold)
-        let box=NSStackView(views:[title,group([zoomSlider,zoomLabelCopy()]),group([rotate,cropMore,cropLess])]);box.orientation = .vertical;box.alignment = .leading;box.spacing=14;box.edgeInsets = .init(top:18,left:18,bottom:18,right:18)
+        let adjustmentRows = NSStackView()
+        adjustmentRows.orientation = .vertical;adjustmentRows.alignment = .leading;adjustmentRows.spacing=10
+        for (index,pair) in [("亮度",brightnessSlider),("对比度",contrastSlider),("Gamma",gammaSlider)].enumerated() {
+            let (label,slider)=pair
+            adjustmentValues[index].widthAnchor.constraint(equalToConstant:42).isActive=true
+            slider.target=self;slider.action = #selector(adjustDisplay);slider.isContinuous=false
+            slider.widthAnchor.constraint(equalToConstant:200).isActive=true
+            adjustmentRows.addArrangedSubview(group([CenteredTextField(labelWithString:label),slider,adjustmentValues[index]]))
+        }
+        let reset=button("恢复默认图像调整",#selector(resetDisplayAdjustments))
+        let box=NSStackView(views:[title,group([zoomSlider,zoomLabelCopy()]),group([rotate,cropMore,cropLess]),adjustmentRows,reset]);box.orientation = .vertical;box.alignment = .leading;box.spacing=14;box.edgeInsets = .init(top:18,left:18,bottom:18,right:18)
         let host=NSViewController();host.view=box;displayOptions.contentViewController=host;displayOptions.behavior = .transient
     }
     private func zoomLabelCopy()->NSTextField {let text=CenteredTextField(labelWithString:"缩放比例");text.font = .systemFont(ofSize:11);text.textColor = .secondaryLabelColor;return text}
@@ -253,7 +282,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private func buildEmptyState() {
         let icon=NSImageView();icon.image=NSImage(systemSymbolName:"books.vertical",accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:42,weight:.light));icon.widthAnchor.constraint(equalToConstant:58).isActive=true;icon.contentTintColor = .secondaryLabelColor;icon.imageScaling = .scaleProportionallyUpOrDown;icon.heightAnchor.constraint(equalToConstant:58).isActive=true
         let title=CenteredTextField(labelWithString:"阅读与整理你的图书");title.font = .systemFont(ofSize:24,weight:.semibold);title.alignment = .center
-        let subtitle=CenteredTextField(wrappingLabelWithString:"打开或拖入电子书开始阅读，也可以批量转换为PDF。\n支持UVZ、ZIP、PDG、PDF、DjVu和多页TIFF。")
+        let subtitle=CenteredTextField(wrappingLabelWithString:"打开或拖入电子书开始阅读，也可以批量转换为PDF。\n支持UVZ、ZIP、PDZ、EPUB、PDG、PDF、DjVu和多页TIFF。")
         subtitle.alignment = .center;subtitle.font = .systemFont(ofSize:13);subtitle.textColor = .secondaryLabelColor
         let open=button("打开图书…",#selector(chooseBook),symbol:"folder"),convert=button("转换工作台…",#selector(convertCurrent),symbol:"doc.badge.arrow.up")
         let actions=group([open,convert]);emptyRecent.orientation = .vertical;emptyRecent.alignment = .centerX;emptyRecent.spacing=8
@@ -326,7 +355,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     @objc func editBook() { showBookEditor(info: false) }
     @objc func editInfo() { renameZip() }
     private func showBookEditor(info: Bool) {
-        guard let book, !window.hasDocumentDialog else { return }
+        guard let book, !book.isPDZ, !window.hasDocumentDialog else { return }
         let sheet = BookEditor(book: book); editor = sheet
         sheet.currentPage = state.page
         sheet.onSaved = { [weak self] backups in
@@ -396,7 +425,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         open(newURL, preserving: saved)
     }
     @objc func renameZip() {
-        guard let book, !window.hasDocumentDialog else { return }
+        guard let book, !book.isPDZ, !window.hasDocumentDialog else { return }
         let sheet = RenameSheet(book: book); renameSheet = sheet; sheet.currentPage = state.page
         for index in book.pages.indices where book.pages[index].key.group == 2 || index == state.page {
             if let cached = analysisCache.object(forKey: analysisKey(index)) { sheet.cachedCopyrightText[index] = cached.transcript }
@@ -409,6 +438,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     @objc func closeBook() { guard !window.hasDocumentDialog else { window.bringDocumentDialogForward(); return }; resetBookSession(clearSession: true) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { if window.hasDocumentDialog { window.bringDocumentDialogForward(); return false }; return true }
     private func resetBookSession(clearSession: Bool) {
+        onlineReferences?.close();onlineReferences=nil
         save(); saveDelay?.cancel(); ocrDelay?.cancel(); ocrTasks.values.forEach { $0.cancel() }; ocrTasks.removeAll()
         session = UUID(); revision += 1; inspectionQueue.cancelAllOperations(); checkedMargins.removeAll(); pageFindings.removeAll(); updatePageFindings(); queue.cancelAllOperations(); pending.removeAll()
         tiles.values.forEach { $0.removeFromSuperview() }; tiles.removeAll(); errors.removeAll()
@@ -487,6 +517,19 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     @objc func zoomChanged() { state.zoom = zoomSlider.doubleValue; applyGeometryOptions() }
     @objc func zoomIn() { state.zoom = min(4, state.zoom * 1.2); applyGeometryOptions() }
     @objc func zoomOut() { state.zoom = max(0.25, state.zoom / 1.2); applyGeometryOptions() }
+    private var pageDisplayOptions: PageDisplayOptions {
+        .init(automatic:state.automaticContrast,brightness:state.brightness,contrast:state.contrast,gamma:state.gamma,warm:state.color==3)
+    }
+    @objc private func adjustDisplay() {
+        state.automaticContrast=automaticContrast.state == .on
+        state.brightness=brightnessSlider.doubleValue;state.contrast=contrastSlider.doubleValue;state.gamma=gammaSlider.doubleValue
+        updateControls();invalidateImages();save()
+    }
+    @objc private func resetDisplayAdjustments() {
+        state.automaticContrast=false;state.brightness=0;state.contrast=1;state.gamma=1
+        updateControls();invalidateImages();save()
+    }
+    @objc func warmColor() {state.color=3;colorChangedFromMenu()}
     @objc func setDefaultPageColor() {AppSettings().set(state.color,"color");updateControls();status.stringValue="默认页面配色已保存，后续打开图书时生效。"}
     @objc func colorChanged() { state.color = colorPopup.indexOfSelectedItem; invalidateImages(); updateControls(); save() }
     @objc func toggleContinuous() { state.continuous.toggle(); applyGeometryOptions() }
@@ -571,10 +614,15 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         coverButton.state = state.coverAlone ? .on : .off; coverButton.isEnabled = book != nil && state.doublePages
         rtlButton.state = state.rightToLeft ? .on : .off
         repairButton.isEnabled = book?.canCorrectPages == true && !window.hasDocumentDialog; auditButton.isEnabled = repairButton.isEnabled
-        renameButton.isEnabled = book != nil
+        renameButton.isEnabled = book != nil && book?.isPDZ != true
         filenameLabel.stringValue = book?.url.lastPathComponent ?? "尚未打开书籍"; filenameLabel.toolTip = book?.url.path
+        automaticContrast.state=state.automaticContrast ? .on:.off
+        automaticContrast.isEnabled=book != nil
+        brightnessSlider.doubleValue=state.brightness;contrastSlider.doubleValue=state.contrast;gammaSlider.doubleValue=state.gamma
+        for (field,value) in zip(adjustmentValues,[state.brightness,state.contrast,state.gamma]) {field.stringValue=String(format:"%.2f",value)}
+        document.readingBackground = state.color==3 ? NSColor(red:0.92,green:0.87,blue:0.76,alpha:1) : .underPageBackgroundColor
         fitPopup.selectItem(at: state.fit); colorPopup.selectItem(at: state.color)
-        for (index,title) in ["跟随系统","原色","反色"].enumerated() {colorPopup.item(at:index)?.title=title+(index == AppSettings().pageColor ? " · 默认" : "")}
+        for (index,title) in ["跟随系统","原色","反色","护眼色"].enumerated() {colorPopup.item(at:index)?.title=title+(index == AppSettings().pageColor ? " · 默认" : "")}
         fitWidthButton.state=state.fit == 0 ? .on : .off;fitHeightButton.state=state.fit == 2 ? .on : .off;fitWholeButton.state=state.fit == 1 ? .on : .off
         defaultColorButton.isEnabled=book != nil && state.color != AppSettings().pageColor
         zoomSlider.doubleValue = state.zoom; zoomLabel.stringValue = "\(Int((state.zoom * 100).rounded()))%"
@@ -584,7 +632,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         if let book { status.stringValue = "\(book.pages[state.page].name) · \(book.pages[state.page].label) · \(state.page + 1) / \(book.pages.count)" + (pageDetails[state.page].map {" · "+$0} ?? "") }
     }
     private var inverted: Bool { state.color == 2 || (state.color == 0 && document.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) }
-    private func imageKey(_ index: Int) -> NSString { "\(index):\(state.rotation):\(state.crop):\(inverted)" as NSString }
+    private func imageKey(_ index: Int) -> NSString { "\(index):\(state.rotation):\(state.crop):\(inverted):\(pageDisplayOptions.key)" as NSString }
     private func analysisKey(_ index: Int) -> NSString { "\(index):\(state.rotation):\(state.crop)" as NSString }
     private func invalidateImages() {
         revision += 1; queue.cancelAllOperations(); pending.removeAll(); errors.removeAll()
@@ -626,7 +674,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         for index in wanted where tiles[index] == nil && errors[index] == nil {
             if let image = preparedCache.object(forKey: imageKey(index)) { install(image, at: index); continue }
             guard !pending.contains(index) else { continue }; pending.insert(index)
-            let token = session, epoch = revision, key = imageKey(index), rotation = state.rotation, crop = state.crop, invert = inverted
+            let token = session, epoch = revision, key = imageKey(index), rotation = state.rotation, crop = state.crop, invert = inverted, displayOptions = self.pageDisplayOptions
             queue.addOperation { [weak self] in
                 guard let self else { return }
                 let result = Result { () throws -> (NSImage, NSImage, String) in
@@ -634,7 +682,8 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
                     if let cached = self.rawCache.object(forKey: NSNumber(value: index)) { raw = cached }
                     else { let cg = try book.pageImage(at: index); raw = NSImage(cgImage: cg, size: CGSize(width: cg.width, height: cg.height)) }
                     guard let cg = raw.cgImage(forProposedRect: nil, context: nil, hints: nil) else { throw ReaderFailure("页面图像不可用。") }
-                    let prepared = try PageImageFactory.prepare(cg, rotation: rotation, crop: crop, invert: invert)
+                    let adjusted=try PageDisplayFilters.render(cg,options:displayOptions)
+                    let prepared = try PageImageFactory.prepare(adjusted, rotation: rotation, crop: crop, invert: invert)
                     return (raw, NSImage(cgImage: prepared, size: CGSize(width: prepared.width, height: prepared.height)),book.pageDescription(at:index,width:cg.width,height:cg.height))
                 }
                 DispatchQueue.main.async {
@@ -664,6 +713,10 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         let tile = PageTile(image: image)
         if let page=try? book?.vectorPage(at:index) {
             let vector=VectorPageView(page:page,rotation:state.rotation,crop:state.crop,invert:inverted)
+            vector.displayOptions=pageDisplayOptions
+            if state.automaticContrast,let raw=rawCache.object(forKey:NSNumber(value:index))?.cgImage(forProposedRect:nil,context:nil,hints:nil) {
+                vector.automaticRange=PageDisplayFilters.blackWhiteRange(raw)
+            }
             tile.vectorView=vector;tile.addSubview(vector,positioned:.above,relativeTo:tile.imageView)
         }
         tile.onContextMenu = {[weak self] in self?.pageContextMenu(index:index)};tile.onDoubleClick = { [weak self] event in self?.doubleClickPage(event) }; tile.frame = frame
@@ -688,15 +741,15 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         for index in indices.prefix(limit ?? indices.count) {
             let key = analysisKey(index)
             if let cached = analysisCache.object(forKey: key) { tiles[index]?.overlay.analysis = cached; ocrStatus.stringValue = cached.hasResults(for: .text) ? "文字可选取、复制" : "此页未识别到文字"; continue }
-            guard ocrTasks[index] == nil, let displayed = tiles[index]?.imageView.image,
+            guard ocrTasks[index] == nil, let displayed = rawCache.object(forKey:NSNumber(value:index)),
                   let cg = displayed.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
-            let token = session, epoch = revision, undoInversion = inverted
+            let token = session, epoch = revision, recognitionRotation = state.rotation, recognitionCrop = state.crop
             ocrStatus.stringValue = "正在识别文字…"
             ocrTasks[index] = Task { @MainActor [weak self] in
                 guard let self else { return }
                 defer { if !Task.isCancelled, self.session == token, self.revision == epoch { self.ocrTasks.removeValue(forKey: index) } }
                 do {
-                    let image = try PageImageFactory.prepare(cg, rotation: 0, crop: 0, invert: undoInversion)
+                    let image = try PageImageFactory.prepare(cg, rotation: recognitionRotation, crop: recognitionCrop, invert: false)
                     var config = ImageAnalyzer.Configuration(.text)
                     let supported = Set(ImageAnalyzer.supportedTextRecognitionLanguages)
                     config.locales = ["zh-Hans", "zh-Hant", "en-US", "ja-JP"].compactMap { preferred in supported.first { $0.hasPrefix(preferred) } }
@@ -792,8 +845,8 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         switch item.action {
         case #selector(showOnlineReferences): return !window.hasDocumentDialog
         case #selector(repairPages): return book?.canCorrectPages == true && !window.hasDocumentDialog
-        case #selector(editBook): return book != nil && !window.hasDocumentDialog
-        case #selector(renameZip), #selector(editInfo): return book != nil && !window.hasDocumentDialog
+        case #selector(editBook): return book != nil && book?.isPDZ != true && !window.hasDocumentDialog
+        case #selector(renameZip), #selector(editInfo): return book != nil && book?.isPDZ != true && !window.hasDocumentDialog
         case #selector(togglePageNumbers): item.state = includePageNumbers ? .on : .off
         case #selector(toggleContinuous): item.state = state.continuous ? .on : .off
         case #selector(toggleDoublePages): item.state = state.doublePages ? .on : .off
@@ -810,14 +863,16 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         case #selector(toggleOCR): item.state = ocrEnabled ? .on : .off
         case #selector(systemColor): item.state = state.color == 0 ? .on : .off
         case #selector(originalColor): item.state = state.color == 1 ? .on : .off
+        case #selector(warmColor): item.state = state.color == 3 ? .on : .off
         case #selector(invertedColor): item.state = state.color == 2 ? .on : .off
         default: break
         }
         return item.action == #selector(chooseBook) || (book != nil && !window.hasDocumentDialog)
     }
 
-    func setTestOptions(continuous: Bool = false, doublePages: Bool = false, rtl: Bool = false, color: Int = 1, rotation: Int = 0, crop: Double = 0, coverAlone: Bool = false) {
+    func setTestOptions(continuous: Bool = false, doublePages: Bool = false, rtl: Bool = false, color: Int = 1, rotation: Int = 0, crop: Double = 0, coverAlone: Bool = false,automaticContrast:Bool = false,contrast:Double = 1,gamma:Double = 1) {
         state.continuous = continuous; state.doublePages = doublePages; state.rightToLeft = rtl; state.color = color; state.rotation = rotation; state.crop = crop
+        state.automaticContrast=automaticContrast;state.contrast=contrast;state.gamma=gamma
         state.coverAlone = coverAlone; state.fit = 1; invalidateImages(); applyGeometryOptions()
     }
     var renderedPageIndices: [Int] { tiles.keys.sorted() }

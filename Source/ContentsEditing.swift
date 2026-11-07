@@ -113,6 +113,9 @@ struct FilenameDraft {
         year = BookMetadata.date(date)
         ss = source["SS号"] ?? ""
         if ss.isEmpty, let range = book.url.deletingPathExtension().lastPathComponent.range(of: "[0-9]{8}$", options: .regularExpression) { ss = String(book.url.deletingPathExtension().lastPathComponent[range]) }
+        if ss.isEmpty {
+            ss=BookMetadata.captures("(?:^|_)([0-9]{8})(?:_|$)",book.url.deletingPathExtension().lastPathComponent).first?.first ?? ""
+        }
         if explicitTitle == nil, !ss.isEmpty, title.hasSuffix(ss) {
             let stripped = String(title.dropLast(ss.count)).trimmingCharacters(in: CharacterSet(charactersIn: " _-"))
             if !stripped.isEmpty { title = stripped }

@@ -13,8 +13,12 @@ struct ReadingState: Codable {
     var color = 1
     var rotation = 0
     var crop = 0.0
+    var automaticContrast = false
+    var brightness = 0.0
+    var contrast = 1.0
+    var gamma = 1.0
     init() {}
-    enum CodingKeys: String, CodingKey { case page, fraction, continuous, doublePages, rightToLeft, coverAlone, wheelTurnsPages, fit, zoom, color, rotation, crop }
+    enum CodingKeys: String, CodingKey { case page, fraction, continuous, doublePages, rightToLeft, coverAlone, wheelTurnsPages, fit, zoom, color, rotation, crop, automaticContrast, brightness, contrast, gamma }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         page = try c.decodeIfPresent(Int.self, forKey: .page) ?? 0
@@ -29,8 +33,15 @@ struct ReadingState: Codable {
         color = try c.decodeIfPresent(Int.self, forKey: .color) ?? 1
         rotation = try c.decodeIfPresent(Int.self, forKey: .rotation) ?? 0
         crop = try c.decodeIfPresent(Double.self, forKey: .crop) ?? 0
+        automaticContrast = try c.decodeIfPresent(Bool.self,forKey:.automaticContrast) ?? false
+        brightness = try c.decodeIfPresent(Double.self,forKey:.brightness) ?? 0
+        contrast = try c.decodeIfPresent(Double.self,forKey:.contrast) ?? 1
+        gamma = try c.decodeIfPresent(Double.self,forKey:.gamma) ?? 1
+        brightness = brightness.isFinite ? min(0.5,max(-0.5,brightness)) : 0
+        contrast = contrast.isFinite ? min(3,max(0.25,contrast)) : 1
+        gamma = gamma.isFinite ? min(4,max(0.25,gamma)) : 1
         page = max(0, page); fraction = fraction.isFinite ? min(1, max(0, fraction)) : 0
-        fit = min(3, max(0, fit)); color = min(2, max(0, color))
+        fit = min(3, max(0, fit)); color = min(3, max(0, color))
         zoom = zoom.isFinite ? min(4, max(0.25, zoom)) : 1
         crop = crop.isFinite ? min(0.15, max(0, crop)) : 0
         rotation = (rotation % 4 + 4) % 4

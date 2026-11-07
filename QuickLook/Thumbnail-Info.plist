@@ -19,9 +19,9 @@
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.22.0</string>
+	<string>0.23.0</string>
 	<key>CFBundleVersion</key>
-	<string>26</string>
+	<string>27</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSExtension</key>
@@ -35,6 +35,7 @@
 			<key>QLSupportedContentTypes</key>
 			<array>
 				<string>local.uvzreader.uvz</string>
+				<string>local.uvzreader.pdz</string>
 			</array>
 			<key>QLThumbnailMinimumDimension</key>
 			<integer>0</integer>

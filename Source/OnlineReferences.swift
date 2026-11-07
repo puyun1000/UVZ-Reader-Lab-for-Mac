@@ -45,7 +45,7 @@ enum OnlineReferenceClient {
 final class OnlineReferences: NSObject,NSWindowDelegate {
     let window=ChineseWindow(contentRect:NSRect(x:0,y:0,width:820,height:620),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
     let ssid=CenteredTextField(),text=ChineseTextView(),image=NSImageView(),status=CenteredTextField(wrappingLabelWithString:""),quota=CenteredTextField(labelWithString:"")
-    let bookmarkButton=NSButton(title:"查询目录",target:nil,action:nil),coverButton=NSButton(title:"查询封面",target:nil,action:nil),adopt=NSButton(title:"追加到目录草稿",target:nil,action:nil)
+    let bookmarkButton=NSButton(title:"查询目录",target:nil,action:nil),coverButton=NSButton(title:"查询封面",target:nil,action:nil),adopt=NSButton(title:"添加到目录编辑…",target:nil,action:nil)
     private var task:Task<Void,Never>?,coverData:Data?,coverSSID:String?,directorySSID:String?,closed=false
     private let referenceSplit=NSSplitView()
     private let session=URLSession(configuration:.ephemeral),sourceSSID:String
@@ -69,7 +69,7 @@ final class OnlineReferences: NSObject,NSWindowDelegate {
         status.stringValue="查询结果可核对后导入目录草稿；只有在目录编辑器保存后才改动图书。";adopt.isEnabled=false
     }
     private func button(_ title:String,_ action:Selector)->NSButton {let b=NSButton(title:title,target:self,action:action);b.bezelStyle = .rounded;return b}
-    func show() {adopt.isHidden=onDirectory == nil;window.center();window.makeKeyAndOrderFront(nil);window.contentView?.layoutSubtreeIfNeeded();referenceSplit.adjustSubviews();referenceSplit.setPosition(max(300,window.contentView!.bounds.width*0.63),ofDividerAt:0)}
+    func show(on parent:NSWindow? = nil) {adopt.isHidden=onDirectory == nil;if let parent {NativeDialog.present(window,on:parent)} else {window.center();window.makeKeyAndOrderFront(nil)};window.contentView?.layoutSubtreeIfNeeded();referenceSplit.adjustSubviews();referenceSplit.setPosition(max(300,window.contentView!.bounds.width*0.63),ofDividerAt:0)}
     @objc func openWebsite() {NSWorkspace.shared.open(URL(string:"https://wbfan.site/duxiu/")!)}
     @objc func fetchDirectory() {fetch(cover:false)}
     @objc func fetchCover() {fetch(cover:true)}
@@ -91,7 +91,7 @@ final class OnlineReferences: NSObject,NSWindowDelegate {
                         guard (imageResponse as? HTTPURLResponse)?.statusCode == 200,bytes.count<=8*1024*1024,let source=CGImageSourceCreateWithData(bytes as CFData,nil),let p=CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],let w=p[kCGImagePropertyPixelWidth] as? Int,let h=p[kCGImagePropertyPixelHeight] as? Int,w>0,h>0,w<=10000,h<=10000,w*h<=10_000_000 else {throw ReaderFailure("封面图像无效或超过大小限制。")}
                         await MainActor.run {guard !self.closed else{return};self.coverData=bytes;self.coverSSID=value;self.image.image=NSImage(data:bytes);self.status.stringValue="封面参考图：\(w)×\(h)像素。可另存，不会替换图书中的原始封面。"}
                     } else if let text=reply.text {
-                        await MainActor.run {guard !self.closed else{return};self.text.string=OnlineReferenceClient.directoryText(text);self.directorySSID=value;self.adopt.isEnabled=self.onDirectory != nil && (self.sourceSSID.isEmpty || self.sourceSSID == value);self.status.stringValue="目录已获取。请核对标题、层级与正文页号，再导入草稿。"}
+                        await MainActor.run {self.receiveDirectory(text,ssid:value)}
                     } else {throw ReaderFailure("未返回可用的目录或封面。")}
                 } catch {
                     await MainActor.run {guard !self.closed else{return};self.status.stringValue=error is CancellationError ? "查询已取消" : error.localizedDescription}
@@ -100,9 +100,15 @@ final class OnlineReferences: NSObject,NSWindowDelegate {
             }
         } catch {status.stringValue=error.localizedDescription}
     }
+    func receiveDirectory(_ content:String,ssid value:String) {
+        guard !closed else{return}
+        text.string=OnlineReferenceClient.directoryText(content);directorySSID=value
+        adopt.isEnabled=onDirectory != nil && (sourceSSID.isEmpty || sourceSSID==value)
+        status.stringValue=adopt.isEnabled ? "目录已获取，点「添加到目录编辑」核对页码和层级。" : "查询号与当前图书不一致，可复制结果核对。"
+    }
     @objc func adoptDirectory() {guard let directorySSID,(sourceSSID.isEmpty || directorySSID == sourceSSID),!text.string.isEmpty else{return};let imported=onDirectory?(text.string) ?? false;status.stringValue=imported ? "已追加到全部类型的目录草稿，可撤销；请核对后保存。" : "暂时无法追加，请先处理目录编辑器中的提示或重新打开查询窗口。"}
     @objc func copyDirectory() {NSPasteboard.general.clearContents();NSPasteboard.general.setString(text.string,forType:.string)}
     @objc func saveCover() {guard let coverData,let coverSSID else {status.stringValue="请先查询封面。";return};let p=NSSavePanel();p.nameFieldStringValue=coverSSID+"_cover.png";p.begin {[weak self] response in guard let self,response == .OK,let url=p.url else{return};do {try coverData.write(to:url,options:.atomic);self.status.stringValue="参考封面已另存。"}catch {self.status.stringValue=error.localizedDescription}}}
-    @objc func close() {closed=true;task?.cancel();session.invalidateAndCancel();window.orderOut(nil);onClosed?()}
+    @objc func close() {closed=true;task?.cancel();session.invalidateAndCancel();NativeDialog.dismiss(window);onClosed?()}
     func windowShouldClose(_ sender:NSWindow)->Bool {close();return false}
 }

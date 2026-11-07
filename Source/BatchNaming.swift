@@ -113,7 +113,7 @@ enum BatchNaming {
         if !parts.joined(separator:"_").isEmpty { values["书名"] = parts.joined(separator:"_").trimmingCharacters(in:.whitespaces) }
         return values
     }
-    static func discover(_ root: URL, recursive: Bool = false, cancelled: () -> Bool = { false }) throws -> [URL] {
+    static func discover(_ root: URL, recursive: Bool = false, extensions: Set<String> = bookExtensions, cancelled: () -> Bool = { false }) throws -> [URL] {
         let fm = FileManager.default
         var result: [URL] = []
         func visit(_ folder: URL) throws {
@@ -130,7 +130,7 @@ enum BatchNaming {
                     let children = try fm.contentsOfDirectory(at:file,includingPropertiesForKeys:nil,options:[.skipsHiddenFiles])
                     if children.contains(where:{$0.pathExtension.lowercased() == "pdg"}) { result.append(file) }
                     else if recursive { try visit(file) }
-                } else if bookExtensions.contains(file.pathExtension.lowercased()) { result.append(file) }
+                } else if extensions.contains(file.pathExtension.lowercased()) { result.append(file) }
                 guard result.count <= 20000 else { throw ReaderFailure("文件夹内图书超过20000项，请分批处理。") }
             }
         }
@@ -383,8 +383,13 @@ struct NamingSource {
         return try book!.pageImage(at:index)
     }
 
+    func vectorPage(at index:Int) throws -> PDFPage? {
+        if let pdf {return pdf.page(at:index)}
+        return try book?.vectorPage(at:index)
+    }
     func nativeText(at index: Int) -> String? {
-        guard let text = pdf?.page(at:index)?.string?.trimmingCharacters(in:.whitespacesAndNewlines),
+        guard let page=pdf?.page(at:index),
+              let text = page.selection(for:page.bounds(for:.cropBox))?.string?.trimmingCharacters(in:.whitespacesAndNewlines),
               !text.isEmpty, text.utf16.count <= 30_000,
               !text.unicodeScalars.contains(where: { $0.value == 0xfffd || $0.properties.generalCategory == .privateUse ||
                   ($0.properties.generalCategory == .control && !CharacterSet.whitespacesAndNewlines.contains($0)) }) else { return nil }

@@ -16,7 +16,7 @@ for QL_KIND in Preview Thumbnail; do
     -module-name "UVZ$QL_KIND" -Xlinker -e -Xlinker _NSExtensionMain \
     "$QL_ROOT/Source/BookArchive.swift" "$QL_ROOT/Source/DocumentFormats.swift" "$QL_ROOT/Source/NativePDFOutline.swift" "$QL_ROOT/Source/NativeDocumentMetadata.swift" "$QL_ROOT/Source/PageDecoder.swift" \
     "$QL_ROOT/QuickLook/CoverRenderer.swift" "$QL_ROOT/QuickLook/${QL_KIND}Provider.swift" \
-    "$QL_ROOT/.build/ZipBridge.o" "$QL_ROOT/.build/PDGDecoder.o" -lz -lc++ \
+    "$QL_ROOT/.build/ZipBridge.o" "$QL_ROOT/.build/PDGDecoder.o" "$QL_ROOT/.build/PDZContainer.o" -lz -lc++ \
     -framework AppKit -framework ImageIO -framework CryptoKit -framework PDFKit -framework QuickLookUI -framework QuickLookThumbnailing -framework UniformTypeIdentifiers \
     -o "$QL_EXTENSION/Contents/MacOS/UVZ$QL_KIND"
   /usr/bin/xattr -cr "$QL_EXTENSION"

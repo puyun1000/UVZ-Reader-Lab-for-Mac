@@ -82,12 +82,13 @@ final class PageDocumentView: NSView {
     }
     var frames: [Int: CGRect] = [:] { didSet { needsDisplay = true } }
     var errors: [Int: String] = [:] { didSet { needsDisplay = true } }
+    var readingBackground = NSColor.underPageBackgroundColor { didSet {needsDisplay=true} }
     var message = "打开电子书，或拖入书籍文件／PDG 文件夹" { didSet { needsDisplay = true } }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.underPageBackgroundColor.setFill(); bounds.fill()
+        readingBackground.setFill(); bounds.fill()
         if frames.isEmpty {
             let text = NSAttributedString(string: message, attributes: [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.secondaryLabelColor])
             let size = text.size(); text.draw(at: CGPoint(x: max(20, (bounds.width - size.width) / 2), y: max(30, (bounds.height - size.height) / 2)))
@@ -104,6 +105,8 @@ final class PageDocumentView: NSView {
 /// The bitmap beneath this view is retained only for image analysis and gestures.
 final class VectorPageView:NSView {
     private let document:PDFDocument?
+    var displayOptions = PageDisplayOptions()
+    var automaticRange: (Double,Double)?
     let page:PDFPage,rotation:Int,crop:Double,invert:Bool
     init(page:PDFPage,rotation:Int,crop:Double,invert:Bool) {self.page=page;self.document=page.document;self.rotation=rotation;self.crop=crop;self.invert=invert;super.init(frame:.zero)}
     required init?(coder:NSCoder){fatalError("init(coder:)")}
@@ -112,19 +115,32 @@ final class VectorPageView:NSView {
     override func viewDidChangeBackingProperties(){super.viewDidChangeBackingProperties();needsDisplay=true}
     override func draw(_ dirtyRect:NSRect) {
         guard let c=NSGraphicsContext.current?.cgContext else{return}
-        let size=page.bounds(for:.mediaBox).size,factor=1-crop*2
+        if displayOptions.active {
+            let scale=window?.backingScaleFactor ?? 2
+            let width=max(1,Int(bounds.width*scale)),height=max(1,Int(bounds.height*scale))
+            guard width<=30000,height<=30000,width*height<=60_000_000,
+                  let bitmap=CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:0,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else{return}
+            bitmap.scaleBy(x:CGFloat(width)/bounds.width,y:CGFloat(height)/bounds.height)
+            drawPage(in:bitmap,applyingInversion:false)
+            guard let raw=bitmap.makeImage(),let adjusted=try? PageDisplayFilters.render(raw,options:displayOptions,range:automaticRange,invert:invert) else{return}
+            c.draw(adjusted,in:bounds)
+            return
+        }
+        drawPage(in:c)
+    }
+    private func drawPage(in c:CGContext,applyingInversion:Bool = true) {
+        let size=page.bounds(for:.cropBox).size,factor=1-crop*2
         guard size.width>0,size.height>0,factor>0 else{return}
         c.saveGState();defer{c.restoreGState()}
         c.clip(to:bounds);c.setShouldAntialias(true);c.setAllowsFontSmoothing(true)
-        if invert {c.beginTransparencyLayer(auxiliaryInfo:nil)}
+        if invert && applyingInversion {c.beginTransparencyLayer(auxiliaryInfo:nil)}
         c.setFillColor(CGColor(gray:1,alpha:1));c.fill(bounds)
         c.saveGState();c.translateBy(x:bounds.midX,y:bounds.midY)
         let output=rotation%2==0 ? size:CGSize(width:size.height,height:size.width)
         c.scaleBy(x:bounds.width/(output.width*factor),y:bounds.height/(output.height*factor))
         c.rotate(by:-CGFloat(rotation) * .pi / 2);c.translateBy(x:-size.width/2,y:-size.height/2)
-        let origin=page.bounds(for:.mediaBox).origin;c.translateBy(x:-origin.x,y:-origin.y)
-        page.draw(with:.mediaBox,to:c);c.restoreGState()
-        if invert {c.setBlendMode(.difference);c.setFillColor(CGColor(gray:1,alpha:1));c.fill(bounds);c.endTransparencyLayer()}
+        page.draw(with:.cropBox,to:c);c.restoreGState()
+        if invert && applyingInversion {c.setBlendMode(.difference);c.setFillColor(CGColor(gray:1,alpha:1));c.fill(bounds);c.endTransparencyLayer()}
     }
 }
 

@@ -103,38 +103,69 @@ static void variant(const Bytes& h,Bytes& out,int type){
 // Text PDG 0x1A selects its own two offsets; image-PDG indices differ.
 // Compatibility reference: Axu UVZReader 0.3.10 textTransform, checked against
 // the compressed-stream checksum and PDF payload on the supplied book.
-static void textType1A(const uint8_t* header,Bytes& payload) {
+static void textVariant(const Bytes& header,Bytes& payload,int type) {
     const uint32_t width=uint32_t(header[16]) | uint32_t(header[17])<<8;
     const uint32_t height=uint32_t(header[18]) | uint32_t(header[19])<<8;
-    const uint32_t length=u32(header+28);
+    const uint32_t length=u32(header.data()+28);
     const uint32_t tail=uint32_t(header[94]) | uint32_t(header[95])<<8;
-    const uint32_t lowWidth=width&255, difference=(width-height)&255;
-    const uint32_t highLength=(length>>8)&255, area=(width*height)&255;
-    const uint32_t combined=(width|height)&255, product=((length>>8)*width)&255;
-    const uint32_t sum=(width+height+length)&255, mixed=(area*lowWidth+tail)&255;
-    const uint32_t first=(combined*area+product*highLength-sum*difference+250+mixed)&511;
+    uint32_t lowWidth=width&255,difference=(width-height)&255,high=length>>8;
+    const uint32_t lowHigh=high&255,area=width*height&255,combined=(width|height)&255;
+    uint32_t product=high*width&255;
+    const uint32_t sum=(width+height+length)&255,mixed=(area*lowWidth+tail)&255;
+    const uint32_t first=(combined*area+product*lowHigh-sum*difference+250+mixed)&511;
     const uint32_t second=(combined*combined+250+sum*difference*area-mixed*product)&511;
-    const uint32_t seed=product*product+sum+highLength+combined+difference+area+lowWidth;
-    const uint32_t multiplier=(uint32_t(key215[(key215[mixed%215]+seed)%215]) *
-                               key130[(key130[mixed%130]+seed)%130])&511;
-    // Unsigned subtraction is part of the format, including before modulo 215.
-    const uint32_t offsetSeed=(uint32_t(key130[lowWidth%130]) *
-                               key215[(difference*area-highLength)%215])&511;
-    const size_t changed=(offsetSeed+((multiplier*second-first)&511))&511;
-    const uint32_t amount=variantPrimes[(multiplier*changed)&63]&511;
-    const size_t middle=(changed>>1)+(amount>>1);
-    require(changed<payload.size() && middle<payload.size(),"文本 PDG 预处理数据被截断。");
-    payload[changed]=uint8_t((payload[changed]^(middle==changed ? 0 : payload[middle]))-amount);
+    const uint32_t seed=product*product+sum+lowHigh+combined+difference+area+lowWidth;
+    product=(uint32_t(key215[(key215[mixed%215]+seed)%215])*key130[(key130[mixed%130]+seed)%130])&511;
+    lowWidth=(uint32_t(key130[lowWidth%130])*key215[(difference*area-lowHigh)%215])&511;
+    std::array<uint32_t,32> fibonacci{1,1};
+    for(size_t i=2;i<fibonacci.size();++i)fibonacci[i]=fibonacci[i-1]+fibonacci[i-2];
+    const uint32_t fib=fibonacci[high&31]&511,prime=variantPrimes[(high*width)&63]&511;
+    const uint32_t q=variantPrimes[(key130[(key215[fib%215]*fib)%130]*prime)&63]&511;
+    const uint32_t v=fibonacci[(key215[(key130[prime%130]*prime)%215]*fib)&31]&511;
+    const uint32_t z=(lowWidth*lowWidth+250+product*second*v-prime*q)&511,u=(product*second-first)&511;
+    const uint32_t t=(prime-product*first)&511,w=(fib*prime+lowWidth*second-product*v+250+q)&511,x=(q-prime*second)&511;
+    const std::array<std::array<uint32_t,2>,12> pairs{{
+        {first,second},{product,lowWidth},{fib,prime},{q,v},{first,z},
+        {u,(fib*fib-second*second+first*first)&511},{t,w},{x,v*q&511},
+        {(first+second)&511,uint32_t(key130[second%130]+key215[z%215])&511},
+        {(lowWidth+u)&511,variantPrimes[(product*((lowWidth+u)&511))&63]&511},
+        {(w-product+t)&511,variantPrimes[key215[t%215]&63]&511},
+        {(lowWidth+u-v+x)&511,fibonacci[key130[t%130]&31]&511}
+    }};
+    size_t changed=pairs[type-0x11][0],amount=pairs[type-0x11][1];
+    if(type<=0x14) {
+        if(changed==amount)return;
+        size_t low=std::min(changed,amount),highIndex=std::max(changed,amount);
+        size_t offset=highIndex-low==17 ? 19 : 17;
+        require(highIndex+offset<payload.size(),"文本 PDG 变换数据被截断。");
+        uint8_t value=payload[low];payload[low]=payload[highIndex]^payload[highIndex+offset];
+        payload[highIndex]=value^payload[low+offset];
+    } else if(type<=0x18) {
+        if(changed==amount)return;
+        size_t low=std::min(changed,amount),highIndex=std::max(changed,amount);
+        require(highIndex<payload.size(),"文本 PDG 变换数据被截断。");
+        uint8_t mask=payload[low]^payload[highIndex];
+        std::reverse(payload.begin()+low+1,payload.begin()+highIndex);
+        for(size_t i=low+1;i<highIndex;++i)payload[i]^=mask;
+    } else {
+        size_t middle=(changed>>1)+(amount>>1);
+        require(changed<payload.size()&&middle<payload.size(),"文本 PDG 变换数据被截断。");
+        payload[changed]=uint8_t((payload[changed]^(middle==changed ? 0 : payload[middle]))-amount);
+    }
 }
 static Bytes textPDF(const uint8_t* source,size_t size) {
     require(size>=140 && source[2]==2,"不支持这种文本 PDG 头部。");
     const size_t offset=u32(source+24),length=u32(source+28);
     require(offset>=140 && offset<=size && length>0 && length<=size-offset,
             "文本 PDG 数据范围异常。");
-    require(source[56]==0,"暂不支持这种文本 PDG 预处理类型。");
-    require(source[15]==0 || source[15]==0x1a,"暂不支持这种文本 PDG 编码。");
+    require(source[56]<=1,"暂不支持这种文本 PDG 预处理类型。");
+    const int type=source[15];
+    require(type==0 || (type>=0x11&&type<=0x1c) || (type>=0xaa&&type<=0xac),"暂不支持这种文本 PDG 编码。");
     Bytes packed(source+offset,source+offset+length);
-    if(source[15]==0x1a) { textType1A(source,packed); }
+    Bytes header(source,source+140);
+    if(type>=0xaa&&type<=0xac)require(packed.size()>=528,"文本 PDG A 系列数据被截断。");
+    PDGSeries::preprocess(header,packed);
+    if(type>=0x11&&type<=0x1c)textVariant(header,packed,type);
     if(packed.size()>=5 && !memcmp(packed.data(),"%PDF-",5)) { return packed; }
     for(size_t capacity=1024*1024;capacity<=128*1024*1024;capacity*=2) {
         Bytes decoded(capacity);
@@ -249,7 +280,7 @@ extern "C" int lab_pdg_decode(const uint8_t* source,size_t size,uint8_t** output
                 result.assign(all.begin()+offset,all.begin()+offset+count);
                 PDGSeries::preprocess(h,result);type=h[15];
                 if(type>=0x11&&type<=0x1c)variant(h,result,type);
-                else legacy(h,result,type);
+                else if(!(type==5 && result.size()>=8 && !memcmp(result.data(),"AT&TFORM",8)))legacy(h,result,type);
                 if(!image(result)){
                     require(h[20]!=24,"PDG 彩色页面内容未识别。");
                     int width=h[16]|h[17]<<8,height=h[18]|h[19]<<8;

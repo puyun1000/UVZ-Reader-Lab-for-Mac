@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(prefix='uvz-vector-') as t:
   if name.endswith('uvz'):
    with zipfile.ZipFile(f,'w') as z:z.writestr('000001.pdg',raw)
   result=subprocess.run([str(exe),'--pdf-vector-test',str(f),str(p/(name+'.png'))],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
-  result=json.loads(result.stdout);assert result['passed']==3 and result['renders'][-1]['width']>result['baselineWidth']*3
+  result=json.loads(result.stdout);assert result['passed']==3 and result['renders'][-1]['width']>=result['renders'][0]['width']*4-3
   checks.append(name+': 2x, 4x, 8x match direct PDFKit output and retain vector source')
  result=subprocess.run([str(exe),'--pdf-reader-display-test',str(source)],capture_output=True,text=True,timeout=90);assert result.returncode==0,(result.stdout,result.stderr)
  result=json.loads(result.stdout);assert result['passed']==4 and result['vectorLayerInstalled'];checks.append('Actual reading window installs vector display through rotation, inversion and fit-width')

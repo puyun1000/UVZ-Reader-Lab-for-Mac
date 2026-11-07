@@ -69,7 +69,7 @@ final class PreviewProvider: NSViewController,QLPreviewingController,NSTextField
         let token = generation; status.stringValue = "正在读取图书…"
         queue.addOperation { [weak self] in
             let result = Result { () throws -> BookArchive in
-                guard url.pathExtension.lowercased() == "uvz" else { throw ReaderFailure("此扩展用于UVZ图书预览。") }
+                guard ["uvz","pdz"].contains(url.pathExtension.lowercased()) else { throw ReaderFailure("此扩展用于UVZ图书预览。") }
                 return try BookArchive(url:url)
             }
             DispatchQueue.main.async {

@@ -29,9 +29,42 @@ enum PageDecoder {
         }
         return false
     }
+    private static func layeredPage(_ data:Data) throws -> Data {
+        let layers=Int(data[21]),tableEnd=140+20*layers
+        func number(_ at:Int)->Int {(0..<4).reduce(0){$0 | Int(data[at+$1])<<($1*8)}}
+        let baseOffset=number(24),baseLength=number(28)
+        guard tableEnd<=data.count,baseOffset>=tableEnd,baseOffset<=data.count,baseLength<=data.count-baseOffset else{throw ReaderFailure("分层 PDG 表或底图范围损坏。")}
+        var base=data;base[21]=0
+        let image=try self.image(decodedData(base),applyOrientation:false)
+        guard let c=CGContext(data:nil,width:image.width,height:image.height,bitsPerComponent:8,bytesPerRow:0,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else{throw ReaderFailure("分层页内存不足。")}
+        c.draw(image,in:CGRect(x:0,y:0,width:image.width,height:image.height))
+        var processed=0
+        for index in 0..<layers {
+            let at=140+index*20
+            func short(_ p:Int)->Int {Int(data[p]) | Int(data[p+1])<<8}
+            let left=short(at+4),top=short(at+6),right=short(at+8),bottom=short(at+10)
+            let offset=number(at+12),length=number(at+16)
+            guard number(at)==1,right>left,bottom>top,right<=image.width,bottom<=image.height,
+                  offset>=tableEnd,offset<=data.count,length<=data.count-offset,length>=3,
+                  offset+length<=baseOffset || offset>=baseOffset+baseLength else{throw ReaderFailure("分层 PDG 图层范围无效或类型不支持。")}
+            processed+=(right-left)*(bottom-top)
+            guard processed<=120_000_000 else{throw ReaderFailure("分层 PDG 图层像素总量超出限制。")}
+            let bytes=data.subdata(in:offset..<offset+length)
+            guard bytes.starts(with:[255,216,255]) else{throw ReaderFailure("此 PDG 图层不是 JPEG。")}
+            let layer=try self.image(bytes,applyOrientation:false)
+            c.interpolationQuality = .high
+            c.draw(layer,in:CGRect(x:left,y:image.height-bottom,width:right-left,height:bottom-top))
+        }
+        let output=NSMutableData()
+        guard let cg=c.makeImage(),let destination=CGImageDestinationCreateWithData(output,"public.png" as CFString,1,nil) else{throw ReaderFailure("分层 PDG 图像生成失败。")}
+        CGImageDestinationAddImage(destination,cg,nil)
+        guard CGImageDestinationFinalize(destination) else{throw ReaderFailure("分层 PDG 图像生成失败。")}
+        return output as Data
+    }
     static func decodedData(_ data: Data) throws -> Data {
         guard data.starts(with: [0x48, 0x48]) else { return data }
         guard data.count >= 3 else { throw ReaderFailure("PDG 头部被截断。") }
+        if data.count>=140,data[2] != 1,data[3] != 0x46,data[21]>0 {return try layeredPage(data)}
         var output: UnsafeMutablePointer<UInt8>?, length = 0
         var message = [CChar](repeating: 0, count: 512)
         let result = data.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
@@ -85,15 +118,15 @@ enum PageDecoder {
 
     static func image(_ document: PDFDocument, at index: Int) throws -> CGImage {
         guard !document.isLocked, let page = document.page(at: index) else { throw ReaderFailure("PDF 页面不存在或无法读取。") }
-        let bounds = page.bounds(for: .mediaBox)
+        let bounds = page.bounds(for: .cropBox)
         guard bounds.width > 0, bounds.height > 0, bounds.width < 30_000, bounds.height < 30_000 else { throw ReaderFailure("PDF 页面尺寸异常。") }
-        let scale = min(2.0, 4000 / max(bounds.width, bounds.height))
+        let scale = min(4000 / max(bounds.width,bounds.height), max(2.0,2400 / max(bounds.width,bounds.height)))
         let width = max(1, Int(bounds.width * scale)), height = max(1, Int(bounds.height * scale))
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw ReaderFailure("PDF 页面渲染失败。") }
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        context.scaleBy(x: scale, y: scale); context.translateBy(x: -bounds.minX, y: -bounds.minY)
-        page.draw(with: .mediaBox, to: context)
+        context.scaleBy(x: scale, y: scale)
+        page.draw(with: .cropBox, to: context)
         guard let image = context.makeImage() else { throw ReaderFailure("PDF 页面渲染失败。") }
         return image
     }

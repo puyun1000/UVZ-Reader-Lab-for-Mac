@@ -14,7 +14,7 @@ struct AppSettings {
     var automaticOCR: Bool { bool("automaticOCR", fallback: false) }
     var metadataOCR: Bool { bool("metadataOCR", fallback: true) }
     var customTemplate: String { defaults.string(forKey: "settings.customTemplate") ?? "{书名}_{作者}_{出版社}_{出版日期}_{SS号}" }
-    var pageColor:Int {min(2,max(0,number("color",fallback:1)))}
+    var pageColor:Int {min(3,max(0,number("color",fallback:1)))}
     var readingState: ReadingState {
         var state = ReadingState(), mode = number("displayMode")
         mode = min(3, max(0, mode)); state.continuous = mode % 2 == 1; state.doublePages = mode >= 2

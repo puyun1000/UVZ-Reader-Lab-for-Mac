@@ -8,6 +8,46 @@ func emit(_ value: [String: Any]) throws {
 }
 
 let args = CommandLine.arguments
+if args.count==2,args[1]=="--display-filter-tests" {
+    do {
+        let c=CGContext(data:nil,width:100,height:100,bitsPerComponent:8,bytesPerRow:0,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.noneSkipLast.rawValue)!
+        c.setFillColor(CGColor(gray:1,alpha:1));c.fill(CGRect(x:0,y:0,width:100,height:100))
+        let white=c.makeImage()!
+        func rgb(_ image:CGImage)->NSColor {
+            var bytes=[UInt8](repeating:0,count:4)
+            bytes.withUnsafeMutableBytes { raw in
+                let sample=CGContext(data:raw.baseAddress,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
+                sample.draw(image,in:CGRect(x:-50,y:-50,width:100,height:100))
+            }
+            return NSColor(srgbRed:Double(bytes[0])/255,green:Double(bytes[1])/255,blue:Double(bytes[2])/255,alpha:1)
+        }
+        var options=PageDisplayOptions();options.warm=true
+        let warm=rgb(try PageDisplayFilters.render(white,options:options))
+        guard abs(warm.redComponent-245.0/255)<0.03,abs(warm.blueComponent-204.0/255)<0.03 else{throw ReaderFailure("护眼白底映射不符。")}
+        options = .init();options.brightness = -0.3
+        guard rgb(try PageDisplayFilters.render(white,options:options)).redComponent<0.9 else{throw ReaderFailure("亮度调整未生效。")}
+        c.setFillColor(CGColor(red:1,green:0,blue:0,alpha:1));c.fill(CGRect(x:0,y:0,width:100,height:100))
+        guard PageDisplayFilters.blackWhiteRange(c.makeImage()!)==nil else{throw ReaderFailure("照片颜色被错误拉伸。")}
+        c.setFillColor(CGColor(gray:0.65,alpha:1));c.fill(CGRect(x:0,y:0,width:50,height:100))
+        c.setFillColor(CGColor(gray:0.95,alpha:1));c.fill(CGRect(x:50,y:0,width:50,height:100))
+        guard PageDisplayFilters.blackWhiteRange(c.makeImage()!) != nil else{throw ReaderFailure("灰度扫描页未形成自动对比范围。")}
+        let migrated=try JSONDecoder().decode(ReadingState.self,from:Data("{\"page\":0}".utf8))
+        guard migrated.contrast==1,migrated.gamma==1,!migrated.automaticContrast else{throw ReaderFailure("旧阅读状态迁移失败。")}
+        try emit(["passed":5,"checks":["护眼色映射","手动亮度","彩色页保护","灰度自动对比","旧状态迁移"]]);exit(0)
+    } catch {fputs(error.localizedDescription+"\n",stderr);exit(1)}
+}
+if args.count==4,["--epub-ui-test","--reader-features-ui-test"].contains(args[1]) {
+    let app=NSApplication.shared
+    let test=FeatureUITest(input:URL(fileURLWithPath:args[2]),output:URL(fileURLWithPath:args[3]),epub:args[1]=="--epub-ui-test")
+    app.delegate=test;app.setActivationPolicy(.accessory);withExtendedLifetime(test) {app.run()};exit(0)
+}
+if args.count==3,args[1]=="--epub-inspect" {
+    do {
+        let book=try EPUBArchive(url:URL(fileURLWithPath:args[2]))
+        try emit(["title":book.title,"metadata":book.metadata,"spine":book.spine,"chapters":book.chapters.map {["title":$0.title,"path":$0.path,"level":$0.level]}])
+        exit(0)
+    } catch {fputs(error.localizedDescription+"\n",stderr);exit(1)}
+}
 if args.count>=3,args[1]=="--pdf-reader-display-test" {
     let app=NSApplication.shared;app.setActivationPolicy(.accessory)
     let domain=Bundle.main.bundleIdentifier ?? "local.uvzreaderlab.rebuild",saved=UserDefaults.standard.persistentDomain(forName:Bundle.main.bundleIdentifier ?? "local.uvzreaderlab.rebuild")
@@ -23,7 +63,7 @@ if args.count>=4,args[1]=="--pdf-vector-test" {
     do {
         let book=try BookArchive(url:URL(fileURLWithPath:args[2])),index=min(5,book.pages.count-1)
         guard let page=try book.vectorPage(at:index) else {throw ReaderFailure("未取得矢量页面。")}
-        let base=try book.pageImage(at:index),rect=page.bounds(for:.mediaBox)
+        let base=try book.pageImage(at:index),rect=page.bounds(for:.cropBox)
         var values:[[String:Any]]=[]
         for scale:CGFloat in [2,4,8] {
             let width=Int(rect.width*scale),height=Int(rect.height*scale)
@@ -34,7 +74,7 @@ if args.count>=4,args[1]=="--pdf-vector-test" {
             if scale==8 {let bitmap=NSBitmapImageRep(cgImage:sharp);try bitmap.representation(using:.png,properties:[:])!.write(to:URL(fileURLWithPath:args[3]))}
             // Compare against PDFKit drawing directly at the same output scale.
             guard let oracle=CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else {throw ReaderFailure("测试分配失败。")}
-            oracle.setFillColor(CGColor(gray:1,alpha:1));oracle.fill(CGRect(x:0,y:0,width:width,height:height));oracle.scaleBy(x:CGFloat(width)/rect.width,y:CGFloat(height)/rect.height);oracle.translateBy(x:-rect.minX,y:-rect.minY);page.draw(with:.mediaBox,to:oracle)
+            oracle.setFillColor(CGColor(gray:1,alpha:1));oracle.fill(CGRect(x:0,y:0,width:width,height:height));oracle.scaleBy(x:CGFloat(width)/rect.width,y:CGFloat(height)/rect.height);page.draw(with:.cropBox,to:oracle)
             let count=width*height*4,a=context.data!.assumingMemoryBound(to:UInt8.self),b=oracle.data!.assumingMemoryBound(to:UInt8.self)
             var delta:UInt64=0;for n in 0..<count {delta+=UInt64(abs(Int(a[n])-Int(b[n])))}
             let mean=Double(delta)/Double(count);guard mean<1 else {throw ReaderFailure("矢量绘制与原生PDFKit不符：\(mean)")}

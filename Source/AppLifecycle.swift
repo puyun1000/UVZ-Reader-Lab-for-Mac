@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc func toggleBackups() { let settings = AppSettings(); settings.set(!settings.backups, "backups") }
     private var editedBytes: Data?
     private(set) var readers: [ReaderController] = []
+    private var epubReaders: [EPUBReader] = []
     private var recentMenu = NSMenu(title: "最近打开")
     private var pendingURLs: [URL] = []
     private var launched = false
@@ -45,7 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var smokePrimary: ReaderController?
     private var smokeSecond: ReaderController?
     private func ownsFocus(_ window: NSWindow) -> Bool { window.isKeyWindow || window.attachedSheet.map(ownsFocus) == true || window.childWindows?.contains(where: ownsFocus) == true }
-    private var active: ReaderController? { readers.first { ownsFocus($0.window) } ?? readers.last }
+    private var active: ReaderController? {
+        if epubReaders.contains(where: {ownsFocus($0.window)}) {return nil}
+        return readers.first {ownsFocus($0.window)} ?? readers.last
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ChineseMenus.install();AppIdentity.installIcon(); buildMenus(); launched = true
@@ -75,6 +79,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func openURL(_ url: URL, forceNew: Bool = false) {
         guard acceptsBookURL(url) else { return }
         let canonical = url.standardizedFileURL
+        if canonical.pathExtension.lowercased()=="epub" {
+            if !forceNew,let existing=epubReaders.first(where:{$0.url==canonical && $0.book != nil}) {
+                existing.window.makeKeyAndOrderFront(nil);return
+            }
+            let reader=EPUBReader(url:canonical);reader.smokeMode=smokeOutput != nil
+            reader.onChanged={[weak self] in self?.saveSession()}
+            reader.onClose={[weak self,weak reader] in self?.epubReaders.removeAll {$0 === reader};self?.saveSession()}
+            epubReaders.append(reader);return
+        }
         if !forceNew, let existing = readers.first(where: { $0.requestedURL == canonical || $0.book?.url == canonical }) {
             existing.window.makeKeyAndOrderFront(nil); return
         }
@@ -113,12 +126,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc func closeCurrentContext() {closeContext(NSApplication.shared.keyWindow)}
     func closeContext(_ key:NSWindow?) {
         if let key,["UVZDocumentDialog","UVZBatchNaming","UVZConversion"].contains(key.identifier?.rawValue ?? "") {key.performClose(nil)}
+        else if let epub=epubReaders.first(where:{$0.window===key}) {epub.closeBook()}
         else {active?.closeBook()}
     }
     @objc func newWindow() { _ = createWindow() }
     @objc func chooseBooks() {
         let panel = NSOpenPanel(); panel.title = "打开电子书或 PDG 文件夹"; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.zip, .pdf, .tiff] + ["local.uvzreader.uvz", "org.djvu.djvu", "local.uvzreaderlab.pdg"].map { UTType(importedAs: $0) }
+        panel.allowedContentTypes = [.zip, .pdf, .tiff] + ["local.uvzreader.uvz", "local.uvzreader.pdz", "org.idpf.epub-container", "org.djvu.djvu", "local.uvzreaderlab.pdg"].map { UTType(importedAs: $0) }
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             if response == .OK { panel.urls.forEach { self?.openURL($0) } }
         }
@@ -126,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
     private func saveSession() {
         guard smokeOutput == nil, !terminating else { return }
-        UserDefaults.standard.set(readers.compactMap { $0.book?.url.path }, forKey: "lastBooks")
+        UserDefaults.standard.set(readers.compactMap { $0.book?.url.path } + epubReaders.compactMap { $0.book?.url.path }, forKey: "lastBooks")
     }
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
         if smokeOutput != nil { return true }
@@ -156,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc private func findContents() { active?.editor?.showContentsTab(); active?.editor?.findReplace() }
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(closeCurrentContext),["UVZBatchNaming","UVZConversion"].contains(NSApplication.shared.keyWindow?.identifier?.rawValue ?? "") { item.title = "关闭当前窗口"; return true }
-        if item.action == #selector(closeCurrentContext) { item.title = NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZDocumentDialog" ? "关闭当前窗口" : "关闭当前书籍"; return active?.book != nil || NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZDocumentDialog" }
+        if item.action == #selector(closeCurrentContext) { item.title = NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZDocumentDialog" ? "关闭当前窗口" : "关闭当前书籍"; return epubReaders.contains {$0.window.isKeyWindow && $0.book != nil} || active?.book != nil || NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZDocumentDialog" }
         if item.action == #selector(toggleBackups) { item.state = AppSettings().backups ? .on : .off; return true }
         if item.action == #selector(findContents) { return active?.editor != nil }
         if item.action == #selector(undoEdit) { return focusedUndoManager?.canUndo == true }
@@ -195,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             item("显示页码作为目录项", #selector(ReaderController.togglePageNumbers)), item("全部展开目录", #selector(ReaderController.expandContents)), item("全部折叠目录", #selector(ReaderController.collapseContents)), .separator(),
             item("适合宽度", #selector(ReaderController.fitWidth)), item("适合整页", #selector(ReaderController.fitWhole)), item("适合高度", #selector(ReaderController.fitHeight)), item("原始大小", #selector(ReaderController.actualSize)),
             item("放大", #selector(ReaderController.zoomIn), "+"), item("缩小", #selector(ReaderController.zoomOut), "-"), .separator(),
-            item("页面跟随系统", #selector(ReaderController.systemColor)), item("页面原色", #selector(ReaderController.originalColor)), item("页面反色", #selector(ReaderController.invertedColor))], to: main)
+            item("页面跟随系统", #selector(ReaderController.systemColor)), item("页面原色", #selector(ReaderController.originalColor)), item("页面反色", #selector(ReaderController.invertedColor)),item("护眼色",#selector(ReaderController.warmColor))], to: main)
         _ = addMenu("页面调整", [item("顺时针旋转", #selector(ReaderController.rotatePage)), item("四边裁边…", #selector(ReaderController.setCrop)), item("重置旋转与裁边", #selector(ReaderController.resetAppearance)), .separator(), item("页面编码校对…",#selector(ReaderController.repairPages))], to: main)
         let windows = addMenu("窗口", [item("最小化", #selector(NSWindow.performMiniaturize(_:)), "m"), item("缩放窗口", #selector(NSWindow.performZoom(_:))), item("全部前置", #selector(NSApplication.arrangeInFront(_:)))], to: main)
         let help = addMenu("帮助", [item("UVZ Reader Lab 功能说明", #selector(showGuide), target: self), item("更新说明", #selector(showReleaseNotes), target: self)], to: main)
