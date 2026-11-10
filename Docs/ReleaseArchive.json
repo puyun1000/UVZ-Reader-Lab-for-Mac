@@ -1,7 +1,42 @@
 {
-  "auditedOn": "2026-11-07",
+  "auditedOn": "2026-11-10",
   "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
   "versions": [
+    {
+      "version": "0.24.0",
+      "status": "original-release",
+      "sourceCommit": "f6ae534bec3a41582e80468db062f6cc37b87da4",
+      "releaseId": 440330712,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.24.0",
+      "publishedAt": "2026-11-10T12:26:43Z",
+      "releaseNotes": "UVZ Reader Lab 0.24.0\n\n- 批量命名新增固定预览区，点选图书即可翻看任意页面。\n- 「目录与封面」查询移至阅读窗口的「图书信息」旁。\n- 可调整当前页、指定页码或全书，支持旋转、四边裁剪、亮度、对比度和 Gamma，另存为 UVZ／ZIP、PDF 或 DjVu 副本。\n- 修正自带旋转的 PDF 的预览尺寸和裁剪坐标。6xH 文本 PDG 给出设备授权提示。\n\n393 项功能检查、55 项界面检查和 11 项快速预览控制器检查通过。PDF 及文本 PDG 的色调调整会将所选页转为图像。DjVu 裁剪或色调调整会重新编码所选页并移除这些页的隐藏文字和注释。\n\n适用于 Apple 芯片 Mac、macOS 14 或更高版本。临时签名，未经 Apple 公证。安装包、源码、验证摘要和 SHA-256 校验表见附件。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.24.0-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "8f46186f75b28c8c6651a294c5b509acb5ac67da718e63269b3c5c5b8616a61a",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.24.0/UVZReaderLab-0.24.0-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.24.0-macOS-arm64.dmg",
+          "bytes": 13292448,
+          "sha256": "ca6257bc9eecfc3fe21bad8fd472e09885520eeea248942e2d6b441be423feee",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.24.0/UVZReaderLab-0.24.0-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.24.0-verification.json",
+          "bytes": 32452,
+          "sha256": "9fbe84ec272c6257aaae2fcbac5d68a9ff7fab3503a97c607410d65709cd2a19",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.24.0/UVZReaderLab-0.24.0-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.24.0.zip",
+          "bytes": 20492412,
+          "sha256": "3c36a50adfda8a5378443d41e7ef1e89e075c93b99ec1ff8ac3f81c787012548",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.24.0/UVZReaderLab-0.24.0.zip"
+        }
+      ]
+    },
     {
       "version": "0.23.0",
       "status": "original-release",
