@@ -536,23 +536,32 @@ extension BookArchive {
         if preserveDates { try sourceDates.restore(to: url) }
         return backups
     }
-    private func rewrittenArchive(replacements: [String:Data], renames: [String:String] = [:]) throws -> Data {
-        let names = Array(replacements.keys)
-        var output = Data(), central = Data(), count = 0
+    private func rewrittenArchive(replacements: [String:Data], renames: [String:String] = [:], files: [String:URL] = [:], stream: FileHandle? = nil, checkpoint: () throws -> Void = {}) throws -> Data {
+        let names = Array(replacements.keys) + Array(files.keys)
+        let replaced = Set(names.map { $0.lowercased() })
+        var output = Data(), central = Data(), count = 0, position = 0
+        func emit(_ data: Data) throws {
+            guard data.count <= Int(UInt32.max) - position else { throw ReaderFailure("编辑后需要 ZIP64，暂不能保存。") }
+            if let stream { try stream.write(contentsOf: data) } else { output.append(data) }
+            position += data.count
+        }
         func append(_ name: String, method: UInt16, packed: Data, size: Int, crc: UInt32) throws {
             let utf8 = Data(name.utf8)
-            guard utf8.count < 65536, packed.count <= Int(UInt32.max), size <= Int(UInt32.max), output.count < Int(UInt32.max) else { throw ReaderFailure("编辑后需要 ZIP64，暂不能保存。") }
-            let offset = UInt32(output.count)
-            output.put32(0x04034b50); output.put16(20); output.put16(0x0800); output.put16(method)
-            output.put16(0); output.put16(0); output.put32(crc); output.put32(UInt32(packed.count)); output.put32(UInt32(size))
-            output.put16(UInt16(utf8.count)); output.put16(0); output.append(utf8); output.append(packed)
+            guard utf8.count < 65536, packed.count <= Int(UInt32.max), size <= Int(UInt32.max), position < Int(UInt32.max) else { throw ReaderFailure("编辑后需要 ZIP64，暂不能保存。") }
+            let offset = UInt32(position)
+            var local = Data()
+            local.put32(0x04034b50); local.put16(20); local.put16(0x0800); local.put16(method)
+            local.put16(0); local.put16(0); local.put32(crc); local.put32(UInt32(packed.count)); local.put32(UInt32(size))
+            local.put16(UInt16(utf8.count)); local.put16(0); local.append(utf8)
+            try emit(local); try emit(packed)
             central.put32(0x02014b50); central.put16(20); central.put16(20); central.put16(0x0800); central.put16(method)
             central.put16(0); central.put16(0); central.put32(crc); central.put32(UInt32(packed.count)); central.put32(UInt32(size))
             central.put16(UInt16(utf8.count)); central.put16(0); central.put16(0); central.put16(0); central.put16(0); central.put32(name.hasSuffix("/") ? 16 : 0); central.put32(offset); central.append(utf8)
             count += 1
         }
-        for entry in entries where !names.contains(where: { $0.lowercased() == entry.name.lowercased() }) {
-            _ = try Self.read(entry, from: bytes) // Verify every original member before creating a replacement.
+        for entry in entries where !replaced.contains(entry.name.lowercased()) {
+            try checkpoint()
+            try autoreleasepool { _ = try Self.read(entry, from: bytes) } // Verify every original member before creating a replacement.
             let start = entry.offset + 30 + Int(try bytes.u16(entry.offset + 26)) + Int(try bytes.u16(entry.offset + 28))
             var end = start + entry.packedSize
             if entry.flags & 8 != 0 {
@@ -561,9 +570,9 @@ extension BookArchive {
                 guard try bytes.u32(descriptor) == entry.crc, try bytes.u32(descriptor + 4) == UInt32(entry.packedSize), try bytes.u32(descriptor + 8) == UInt32(entry.size) else { throw ReaderFailure("ZIP 数据描述符异常，未保存修改。") }
                 end = descriptor + 12
             }
-            guard end <= bytes.count, output.count < Int(UInt32.max) else { throw ReaderFailure("ZIP 条目范围或大小异常。") }
+            guard end <= bytes.count, position < Int(UInt32.max) else { throw ReaderFailure("ZIP 条目范围或大小异常。") }
             var record = bytes.subdata(in: entry.centralOffset..<entry.centralOffset + entry.centralLength)
-            let offset = UInt32(output.count)
+            let offset = UInt32(position)
             for i in 0..<4 { record[42 + i] = UInt8(truncatingIfNeeded: offset >> (i * 8)) }
             if let renamed = renames[entry.name], renamed != entry.name {
                 let name = Data(renamed.utf8)
@@ -584,25 +593,44 @@ extension BookArchive {
                 var header = bytes.subdata(in: entry.offset..<entry.offset+30)
                 func set16(_ data: inout Data, _ at: Int, _ value: UInt16) { data[at] = UInt8(truncatingIfNeeded:value); data[at+1] = UInt8(truncatingIfNeeded:value >> 8) }
                 set16(&header,6,entry.flags | 0x0800); set16(&header,26,UInt16(name.count)); set16(&header,28,UInt16(extra.count))
-                output.append(header); output.append(name); output.append(extra); output.append(bytes.subdata(in:start..<end))
+                try emit(header); try emit(name); try emit(extra); try emit(bytes.subdata(in:start..<end))
                 let oldName = Int(try record.u16(28)), oldExtra = Int(try record.u16(30)), oldComment = Int(try record.u16(32))
                 let centralExtra = try cleanExtra(record.subdata(in:46+oldName..<46+oldName+oldExtra))
                 let comment = record.subdata(in:46+oldName+oldExtra..<46+oldName+oldExtra+oldComment)
                 record = record.subdata(in:0..<46)
                 set16(&record,8,entry.flags | 0x0800); set16(&record,28,UInt16(name.count)); set16(&record,30,UInt16(centralExtra.count))
                 record.append(name); record.append(centralExtra); record.append(comment); central.append(record)
-            } else { output.append(bytes.subdata(in: entry.offset..<end)); central.append(record) }
+            } else { try emit(bytes.subdata(in: entry.offset..<end)); central.append(record) }
             count += 1
         }
         for name in names {
-            let data = replacements[name]!
-            let crc: UInt32 = data.isEmpty ? 0 : data.withUnsafeBytes { crc32Bytes($0.baseAddress!.assumingMemoryBound(to: UInt8.self), data.count) }
-            try append(name, method: 0, packed: data, size: data.count, crc: crc)
+            try checkpoint()
+            try autoreleasepool {
+                let data = try replacements[name] ?? Data(contentsOf: files[name]!, options: .mappedIfSafe)
+                guard data.count <= Self.maxEntryBytes else { throw ReaderFailure("编辑后的单个 PDG 分段超过 128 MB。") }
+                let crc: UInt32 = data.isEmpty ? 0 : data.withUnsafeBytes { crc32Bytes($0.baseAddress!.assumingMemoryBound(to: UInt8.self), data.count) }
+                try append(name, method: 0, packed: data, size: data.count, crc: crc)
+            }
         }
-        guard count < 65535, output.count < Int(UInt32.max), central.count < Int(UInt32.max) else { throw ReaderFailure("编辑后需要 ZIP64，暂不能保存。") }
-        let offset = output.count; output.append(central)
-        output.put32(0x06054b50); output.put16(0); output.put16(0); output.put16(UInt16(count)); output.put16(UInt16(count)); output.put32(UInt32(central.count)); output.put32(UInt32(offset)); output.put16(UInt16(archiveComment.count)); output.append(archiveComment)
+        guard count < 65535, position < Int(UInt32.max), central.count < Int(UInt32.max) else { throw ReaderFailure("编辑后需要 ZIP64，暂不能保存。") }
+        let offset = position
+        try emit(central)
+        var end = Data()
+        end.put32(0x06054b50); end.put16(0); end.put16(0); end.put16(UInt16(count)); end.put16(UInt16(count)); end.put32(UInt32(central.count)); end.put32(UInt32(offset)); end.put16(UInt16(archiveComment.count)); end.append(archiveComment)
+        try emit(end)
         return output
+    }
+
+    func writeAdjustedArchive(_ replacements: [Int:URL], to target: URL, checkpoint: () throws -> Void) throws {
+        guard loose == nil, !isPDZ, !replacements.isEmpty, replacements.keys.allSatisfy(entries.indices.contains) else {
+            throw ReaderFailure("无法为这种归档写入调整后的页面。")
+        }
+        let files = Dictionary(uniqueKeysWithValues: replacements.map { (entries[$0.key].name, $0.value) })
+        guard FileManager.default.createFile(atPath: target.path, contents: nil) else { throw ReaderFailure("无法创建图书副本。") }
+        let handle = try FileHandle(forWritingTo: target)
+        defer { try? handle.close() }
+        _ = try rewrittenArchive(replacements: [:], files: files, stream: handle, checkpoint: checkpoint)
+        try handle.synchronize()
     }
     static func backupURL(_ url: URL) -> URL {
         URL(fileURLWithPath: url.path + ".backup-" + UUID().uuidString.prefix(8))

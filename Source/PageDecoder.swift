@@ -2,6 +2,13 @@ import AppKit
 import ImageIO
 import PDFKit
 
+extension PDFPage {
+    var orientedCropSize: CGSize {
+        let size = bounds(for: .cropBox).size
+        return rotation % 180 == 0 ? size : CGSize(width: size.height, height: size.width)
+    }
+}
+
 @_silgen_name("lab_pdg_decode")
 private func decodeNativePDG(_ input: UnsafePointer<UInt8>, _ size: Int, _ output: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>, _ length: UnsafeMutablePointer<Int>, _ error: UnsafeMutablePointer<CChar>, _ capacity: Int) -> Int32
 @_silgen_name("lab_pdg_free") private func freeNativePDG(_ bytes: UnsafeMutableRawPointer)
@@ -118,7 +125,7 @@ enum PageDecoder {
 
     static func image(_ document: PDFDocument, at index: Int) throws -> CGImage {
         guard !document.isLocked, let page = document.page(at: index) else { throw ReaderFailure("PDF 页面不存在或无法读取。") }
-        let bounds = page.bounds(for: .cropBox)
+        let bounds = page.orientedCropSize
         guard bounds.width > 0, bounds.height > 0, bounds.width < 30_000, bounds.height < 30_000 else { throw ReaderFailure("PDF 页面尺寸异常。") }
         let scale = min(4000 / max(bounds.width,bounds.height), max(2.0,2400 / max(bounds.width,bounds.height)))
         let width = max(1, Int(bounds.width * scale)), height = max(1, Int(bounds.height * scale))

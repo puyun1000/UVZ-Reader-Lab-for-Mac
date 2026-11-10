@@ -73,7 +73,7 @@ final class NamingSourceWindow: NSObject, NSWindowDelegate {
     @objc func fitWidth() {
         automaticFit=false
         if !pdfView.isHidden,let page=pdfView.currentPage {
-            pdfView.autoScales=false;pdfView.scaleFactor=pdfView.bounds.width/max(1,page.bounds(for:.cropBox).width)
+            pdfView.autoScales=false;pdfView.scaleFactor=pdfView.bounds.width/max(1,page.orientedCropSize.width)
         } else if let size=image.image?.size {
             imageScroll.magnification=min(imageScroll.maxMagnification,imageScroll.contentSize.width/max(1,size.width))
         }
@@ -104,6 +104,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     let recognitionControls = RecognitionControls()
     let window = ChineseWindow(contentRect:NSRect(x:0,y:0,width:1380,height:940),styleMask:[.titled,.closable,.resizable,.miniaturizable],backing:.buffered,defer:false)
     let table = NSTableView(), evidenceTable = NSTableView()
+    let bookPreview = BatchBookPreview()
     let recursive = NSButton(checkboxWithTitle:"包含子文件夹",target:nil,action:nil)
     let useOCR = NSButton(checkboxWithTitle:"识别图像并交叉核对",target:nil,action:nil)
     let forcePDFOCR = NSButton(checkboxWithTitle:"PDF 逐页 OCR",target:nil,action:nil)
@@ -165,8 +166,15 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         detailNote.font = .systemFont(ofSize:11); detailNote.textColor = .secondaryLabelColor; detailNote.maximumNumberOfLines = 4
         let detail = NSStackView(views:[CenteredTextField(labelWithString:"图书信息与来源核对"),grid,reviewed,detailNote,evidence,evidenceTools]); detail.orientation = .vertical; detail.alignment = .leading; detail.spacing = 8
         for view in [grid,reviewed,detailNote,evidence,evidenceTools] { view.widthAnchor.constraint(equalTo:detail.widthAnchor).isActive = true }
-        let split = NSSplitView(); split.delegate = self; split.isVertical = true; split.dividerStyle = .thin; split.addArrangedSubview(list); split.addArrangedSubview(detail)
-        list.widthAnchor.constraint(greaterThanOrEqualToConstant:450).isActive = true; detail.widthAnchor.constraint(greaterThanOrEqualToConstant:490).isActive = true; split.heightAnchor.constraint(greaterThanOrEqualToConstant:400).isActive = true
+        let books = NSSplitView()
+        books.dividerStyle = .thin
+        books.delegate = self
+        books.addArrangedSubview(list)
+        books.addArrangedSubview(bookPreview)
+        list.heightAnchor.constraint(greaterThanOrEqualToConstant:120).isActive = true
+        books.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
+        let split = NSSplitView(); split.delegate = self; split.isVertical = true; split.dividerStyle = .thin; split.addArrangedSubview(books); split.addArrangedSubview(detail)
+        books.widthAnchor.constraint(greaterThanOrEqualToConstant:450).isActive = true; detail.widthAnchor.constraint(greaterThanOrEqualToConstant:490).isActive = true; split.heightAnchor.constraint(greaterThanOrEqualToConstant:400).isActive = true
         formatHint.font = .systemFont(ofSize:11); formatHint.textColor = .secondaryLabelColor
         finalName.delegate = self; finalName.identifier = .init("final-name"); finalName.placeholderString = "可手工修订最终名称，扩展名自动保留"
         let nameRow = NSStackView(views:[CenteredTextField(labelWithString:"最终名称"),finalName]); nameRow.spacing = 8
@@ -182,7 +190,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo:host.leadingAnchor,constant:16),root.trailingAnchor.constraint(equalTo:host.trailingAnchor,constant:-16),root.topAnchor.constraint(equalTo:host.topAnchor,constant:16),root.bottomAnchor.constraint(equalTo:host.bottomAnchor,constant:-16)])
         for view in [top,tools,recognitionOptions,split,formatHint,nameRow,options,footer] { view.widthAnchor.constraint(equalTo:root.widthAnchor).isActive = true }
         split.setContentHuggingPriority(.defaultLow,for:.vertical)
-        window.contentView?.layoutSubtreeIfNeeded(); split.setPosition(680,ofDividerAt:0); loadDetails(); updateControls()
+        window.contentView?.layoutSubtreeIfNeeded(); split.setPosition(680,ofDividerAt:0); books.setPosition(205,ofDividerAt:0); loadDetails(); updateControls()
     }
     private func button(_ title: String,_ action: Selector) -> NSButton { let b = NSButton(title:title,target:self,action:action); b.bezelStyle = .rounded; return b }
     private func configure(_ table: NSTableView,columns: [(String,String,CGFloat)]) {
@@ -289,6 +297,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     }
     private func loadDetails() {
         let item = selectedIndex.flatMap { items.indices.contains($0) ? items[$0] : nil }, proposal = item?.proposal
+        bookPreview.load(item?.url)
         for (index,key) in fieldKeys.enumerated() { fields[index].stringValue = proposal?.metadata[key] ?? ""; fields[index].isEnabled = proposal != nil && item?.outcome == nil && !isApplying; fieldStates[index].stringValue = proposal?.fieldStatus(key) ?? "" }
         currentEvidence = (proposal?.evidence ?? []).enumerated().sorted { a,b in let x = BookMetadata.fields.firstIndex(of:a.element.field) ?? 99,y = BookMetadata.fields.firstIndex(of:b.element.field) ?? 99; return x != y ? x<y : a.offset<b.offset }.map(\.element); evidenceTable.reloadData()
         formatHint.stringValue = proposal.map { "命名格式："+NamingPreferences.pattern(item?.styleID ?? NamingPreferences.automatic,metadata:$0.metadata) } ?? ""
@@ -426,7 +435,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         panel.begin { [weak self] response in guard response == .OK,let self,let url = panel.url else { return }; do { try BatchNaming.csv(self.items).write(to:url,atomically:true,encoding:.utf8) } catch { self.note.stringValue = error.localizedDescription } }
     }
     @objc func closeWindow() {
-        if isApplying { stop(); return }; closed = true; stopAnalysis(); sourceWindow?.closeWindow(); templateWindow?.close(); window.orderOut(nil); onClosed?()
+        if isApplying { stop(); return }; closed = true; stopAnalysis(); bookPreview.load(nil); sourceWindow?.closeWindow(); templateWindow?.close(); window.orderOut(nil); onClosed?()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { closeWindow(); return false }
 }

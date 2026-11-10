@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix='uvz-package-') as td:
   assert re.search(r'minos\s+14\.0(?:\s|$)',run('xcrun','vtool','-show-build',path))
   assert '/opt/homebrew/' not in run('otool','-L',path)
   binaries.append(str(path.relative_to(app)))
- assert len(binaries)==7,binaries
+ assert len(binaries)==9,binaries
  run('ditto','-c','-k','--keepParent','--norsrc',source,sourcezip)
  with zipfile.ZipFile(sourcezip) as z:
   for name in files:assert z.read('UVZReaderLab/'+name)==(r/name).read_bytes()

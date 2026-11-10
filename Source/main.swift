@@ -8,6 +8,16 @@ func emit(_ value: [String: Any]) throws {
 }
 
 let args = CommandLine.arguments
+if args.count == 6, args[1] == "--adjust-pages" {
+    do {
+        let source = URL(fileURLWithPath: args[2]), target = URL(fileURLWithPath: args[3])
+        let edit = try JSONDecoder().decode(PageAdjustment.self, from: Data(args[5].utf8))
+        let pages = try PageAdjustment.pages(args[4], count: 100_000)
+        try PageAdjustmentWriter.save(from: source, to: target, pages: pages, edit: edit)
+        try emit(["adjusted": pages.count])
+        exit(0)
+    } catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+}
 if args.count==2,args[1]=="--display-filter-tests" {
     do {
         let c=CGContext(data:nil,width:100,height:100,bitsPerComponent:8,bytesPerRow:0,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.noneSkipLast.rawValue)!
@@ -36,9 +46,9 @@ if args.count==2,args[1]=="--display-filter-tests" {
         try emit(["passed":5,"checks":["护眼色映射","手动亮度","彩色页保护","灰度自动对比","旧状态迁移"]]);exit(0)
     } catch {fputs(error.localizedDescription+"\n",stderr);exit(1)}
 }
-if args.count==4,["--epub-ui-test","--reader-features-ui-test"].contains(args[1]) {
+if args.count==4,["--epub-ui-test","--reader-features-ui-test","--page-adjustment-ui-test"].contains(args[1]) {
     let app=NSApplication.shared
-    let test=FeatureUITest(input:URL(fileURLWithPath:args[2]),output:URL(fileURLWithPath:args[3]),epub:args[1]=="--epub-ui-test")
+    let test=FeatureUITest(input:URL(fileURLWithPath:args[2]),output:URL(fileURLWithPath:args[3]),epub:args[1]=="--epub-ui-test", adjustment:args[1]=="--page-adjustment-ui-test")
     app.delegate=test;app.setActivationPolicy(.accessory);withExtendedLifetime(test) {app.run()};exit(0)
 }
 if args.count==3,args[1]=="--epub-inspect" {
@@ -63,7 +73,7 @@ if args.count>=4,args[1]=="--pdf-vector-test" {
     do {
         let book=try BookArchive(url:URL(fileURLWithPath:args[2])),index=min(5,book.pages.count-1)
         guard let page=try book.vectorPage(at:index) else {throw ReaderFailure("未取得矢量页面。")}
-        let base=try book.pageImage(at:index),rect=page.bounds(for:.cropBox)
+        let base=try book.pageImage(at:index),rect=page.orientedCropSize
         var values:[[String:Any]]=[]
         for scale:CGFloat in [2,4,8] {
             let width=Int(rect.width*scale),height=Int(rect.height*scale)

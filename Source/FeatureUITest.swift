@@ -3,12 +3,21 @@ import WebKit
 
 final class FeatureUITest:NSObject,NSApplicationDelegate {
     let input:URL,output:URL,epubMode:Bool
+    let adjustmentMode: Bool
+    var batch: BatchNamingWindow?
+    var original: Data?
     var reader:ReaderController?,epub:EPUBReader?,source:NamingSourceWindow?
     var stage=0,checks:[String]=[],deadline=Date().addingTimeInterval(90),waiting=false
-    init(input:URL,output:URL,epub:Bool) {self.input=input;self.output=output;epubMode=epub}
+    init(input:URL,output:URL,epub:Bool,adjustment:Bool = false) {self.input=input;self.output=output;epubMode=epub;adjustmentMode=adjustment}
     func applicationDidFinishLaunching(_ notification:Notification) {
         if epubMode {epub=EPUBReader(url:input);epub?.smokeMode=true}
-        else {let reader=ReaderController();reader.smokeMode=true;self.reader=reader;reader.window.makeKeyAndOrderFront(nil);reader.open(input.appendingPathComponent("first.uvz"))}
+        else if adjustmentMode {
+            let batch = BatchNamingWindow()
+            self.batch = batch
+            batch.useOCR.state = .off
+            batch.show()
+            batch.loadFolder(input)
+        } else {let reader=ReaderController();reader.smokeMode=true;self.reader=reader;reader.window.makeKeyAndOrderFront(nil);reader.open(input.appendingPathComponent("first.uvz"))}
         tick()
     }
     func check(_ condition:Bool,_ text:String) throws {
@@ -25,7 +34,7 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline:.now()+0.15) { [self] in
             do {
                 guard Date()<deadline else{throw ReaderFailure("界面验证超时。")}
-                if epubMode {try testEPUB()} else {try testReader()}
+                if adjustmentMode {try testAdjustment()} else if epubMode {try testEPUB()} else {try testReader()}
                 tick()
             } catch {fail(error)}
         }
@@ -50,6 +59,82 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
                 }
             } catch {fail(error)}
         }
+    }
+    func testAdjustment() throws {
+        guard let batch else { return }
+        let pdf = input.appendingPathComponent("a.pdf").standardizedFileURL
+        let outputBook = output.deletingPathExtension().appendingPathExtension("pdf")
+        switch stage {
+        case 0:
+            guard batch.items.count == 2, batch.bookPreview.canvas.hasPage else { return }
+            try check(batch.bookPreview.url == pdf && batch.bookPreview.pageCount == 32, "固定预览打开完整 PDF")
+            try check(batch.bookPreview.canvas.documentView is VectorPageView, "固定预览采用矢量页")
+            batch.bookPreview.pageField.stringValue = "16"
+            _ = NSApplication.shared.sendAction(batch.bookPreview.pageField.action!, to: batch.bookPreview.pageField.target, from: batch.bookPreview.pageField)
+            stage = 1
+        case 1:
+            guard batch.bookPreview.canvas.hasPage else { return }
+            try check(batch.bookPreview.page == 15, "可跳到不在首尾候选范围内的正文页")
+            try screenshot(batch.window, "batch-preview")
+            batch.table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+            stage = 2
+        case 2:
+            guard batch.bookPreview.canvas.hasPage, batch.bookPreview.url?.lastPathComponent == "b.uvz" else { return }
+            try check(batch.bookPreview.page == 0 && batch.bookPreview.pageCount == 6, "点击另一行时同一窗格实时换书")
+            try check(batch.bookPreview.canvas.documentView is PageProofImageView, "UVZ 显示原始图像")
+            batch.closeWindow()
+            let reader = ReaderController()
+            reader.smokeMode = true
+            self.reader = reader
+            reader.window.makeKeyAndOrderFront(nil)
+            reader.open(pdf)
+            stage = 3
+        case 3:
+            guard let reader, reader.hasRenderedImage else { return }
+            func button(_ title: String, in view: NSView) -> NSButton? {
+                if let view = view as? NSButton, view.title == title { return view }
+                return view.subviews.lazy.compactMap { button(title, in: $0) }.first
+            }
+            let view = reader.window.contentView!
+            guard let query = button("目录与封面…", in: view), let bar = query.superview as? NSStackView,
+                  let i = bar.arrangedSubviews.firstIndex(where: { $0 === query }), i > 0 else {
+                throw ReaderFailure("找不到在线查询工具栏按钮")
+            }
+            try check((bar.arrangedSubviews[i-1] as? NSButton)?.title == "图书信息…", "在线查询入口紧邻图书信息")
+            query.performClick(nil)
+            try check(reader.onlineReferences != nil, "按钮打开目录与封面查询")
+            reader.onlineReferences?.close()
+            button("调整页面…", in: view)?.performClick(nil)
+            try check(reader.adjustmentWindow != nil, "工具栏打开页面调整")
+            stage = 4
+        case 4:
+            guard let editor = reader?.adjustmentWindow, editor.before.hasPage, editor.after.hasPage else { return }
+            editor.scope.selectItem(at: 1)
+            editor.range.stringValue = "1,3-4"
+            editor.rotation.selectItem(at: 1)
+            editor.cropFields[0].stringValue = "10"
+            editor.refresh()
+            stage = 5
+        case 5:
+            guard let editor = reader?.adjustmentWindow, editor.before.hasPage, editor.after.hasPage,
+                  editor.after.size.width == editor.before.size.height else { return }
+            try check(editor.after.size.height < editor.before.size.width, "同屏显示裁边和旋转效果")
+            try screenshot(editor.window, "page-adjustment")
+            original = try Data(contentsOf: pdf)
+            try editor.saveCopy(to: outputBook)
+            stage = 6
+        default:
+            guard reader?.adjustmentWindow == nil, FileManager.default.fileExists(atPath: outputBook.path) else { return }
+            let copy = try BookArchive(url: outputBook)
+            let unchanged = try Data(contentsOf: pdf) == original
+            try check(copy.pages.count == 32 && unchanged, "范围另存通过原生界面并保留原书")
+            try finish()
+        }
+    }
+    private func screenshot(_ window: NSWindow, _ name: String) throws {
+        guard let view = window.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        try bitmap.representation(using: .png, properties: [:])?.write(to: output.deletingLastPathComponent().appendingPathComponent(name + ".png"))
     }
     func testReader() throws {
         guard let reader else{return}
@@ -87,7 +172,7 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
             try check(source.pdfView.displayBox == .cropBox,"原图核对采用PDF成书裁切框")
             source.fitPage();let fit=source.pdfView.scaleFactor
             source.zoomIn();try check(source.pdfView.scaleFactor>fit,"原图可矢量放大")
-            source.fitWidth();try check(abs(source.pdfView.scaleFactor*(source.pdfView.currentPage?.bounds(for:.cropBox).width ?? 0)-source.pdfView.bounds.width)<3,"原图按成书宽度适配")
+            source.fitWidth();try check(abs(source.pdfView.scaleFactor*(source.pdfView.currentPage?.orientedCropSize.width ?? 0)-source.pdfView.bounds.width)<3,"原图按成书宽度适配")
             if let view=source.window.contentView,let rep=view.bitmapImageRepForCachingDisplay(in:view.bounds) {
                 view.cacheDisplay(in:view.bounds,to:rep)
                 try rep.representation(using:.png,properties:[:])?.write(to:output.deletingPathExtension().appendingPathExtension("png"))

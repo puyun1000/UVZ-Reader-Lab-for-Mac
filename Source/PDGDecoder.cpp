@@ -155,11 +155,13 @@ static void textVariant(const Bytes& header,Bytes& payload,int type) {
 }
 static Bytes textPDF(const uint8_t* source,size_t size) {
     require(size>=140 && source[2]==2,"不支持这种文本 PDG 头部。");
+    const int type=source[15];
+    // Device-bound variants encrypt the header fields that normally contain the PDF range.
+    require(type<0x64 || type>0x6a,"此文本 PDG 使用超星 6xH 设备绑定编码，需要原下载环境对应的授权数据。");
     const size_t offset=u32(source+24),length=u32(source+28);
     require(offset>=140 && offset<=size && length>0 && length<=size-offset,
             "文本 PDG 数据范围异常。");
     require(source[56]<=1,"暂不支持这种文本 PDG 预处理类型。");
-    const int type=source[15];
     require(type==0 || (type>=0x11&&type<=0x1c) || (type>=0xaa&&type<=0xac),"暂不支持这种文本 PDG 编码。");
     Bytes packed(source+offset,source+offset+length);
     Bytes header(source,source+140);

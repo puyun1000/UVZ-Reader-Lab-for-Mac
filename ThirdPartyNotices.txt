@@ -29,13 +29,15 @@ DjVuLibre 3.5.30
 https://djvu.sourceforge.net/
 Source: https://downloads.sourceforge.net/project/djvu/DjVuLibre/3.5.30/djvulibre-3.5.30.tar.gz
 
-The bundled standalone programs ddjvu and djvused are built from DjVuLibre
+The bundled standalone programs ddjvu, djvused and c44 are built from DjVuLibre
 source with reader-safety.patch (pixel limits and explicit unsupported-layer
 errors). They are licensed under the GNU General Public License,
 version 2 or (at your option) any later version. Their full corresponding
 source archive, GPL text, and the exact build script are included in
 ThirdParty/DjVuLibre in the source distribution, and in the app at
 Contents/Resources/DjVuLibre. Copyright notices are retained in that source.
+The standalone lab-djvu-replace program uses the same DjVuLibre library.
+Its corresponding replace-pages.cpp source is provided under GPL-2.0-or-later.
 
 The reader invokes these programs as separate processes. No DjVuLibre
 library is linked into the Swift reader executable. Build flags disable

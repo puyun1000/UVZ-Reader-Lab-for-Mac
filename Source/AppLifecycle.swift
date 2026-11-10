@@ -210,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             item("适合宽度", #selector(ReaderController.fitWidth)), item("适合整页", #selector(ReaderController.fitWhole)), item("适合高度", #selector(ReaderController.fitHeight)), item("原始大小", #selector(ReaderController.actualSize)),
             item("放大", #selector(ReaderController.zoomIn), "+"), item("缩小", #selector(ReaderController.zoomOut), "-"), .separator(),
             item("页面跟随系统", #selector(ReaderController.systemColor)), item("页面原色", #selector(ReaderController.originalColor)), item("页面反色", #selector(ReaderController.invertedColor)),item("护眼色",#selector(ReaderController.warmColor))], to: main)
-        _ = addMenu("页面调整", [item("顺时针旋转", #selector(ReaderController.rotatePage)), item("四边裁边…", #selector(ReaderController.setCrop)), item("重置旋转与裁边", #selector(ReaderController.resetAppearance)), .separator(), item("页面编码校对…",#selector(ReaderController.repairPages))], to: main)
+        _ = addMenu("页面调整", [item("顺时针旋转", #selector(ReaderController.rotatePage)), item("四边裁边…", #selector(ReaderController.setCrop)), item("重置旋转与裁边", #selector(ReaderController.resetAppearance)), .separator(), item("页面编码校对…",#selector(ReaderController.repairPages)), item("调整页面并另存…",#selector(ReaderController.editPages))], to: main)
         let windows = addMenu("窗口", [item("最小化", #selector(NSWindow.performMiniaturize(_:)), "m"), item("缩放窗口", #selector(NSWindow.performZoom(_:))), item("全部前置", #selector(NSApplication.arrangeInFront(_:)))], to: main)
         let help = addMenu("帮助", [item("UVZ Reader Lab 功能说明", #selector(showGuide), target: self), item("更新说明", #selector(showReleaseNotes), target: self)], to: main)
         NSApplication.shared.helpMenu = help

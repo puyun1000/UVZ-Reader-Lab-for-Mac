@@ -129,7 +129,7 @@ final class VectorPageView:NSView {
         drawPage(in:c)
     }
     private func drawPage(in c:CGContext,applyingInversion:Bool = true) {
-        let size=page.bounds(for:.cropBox).size,factor=1-crop*2
+        let size=page.orientedCropSize,factor=1-crop*2
         guard size.width>0,size.height>0,factor>0 else{return}
         c.saveGState();defer{c.restoreGState()}
         c.clip(to:bounds);c.setShouldAntialias(true);c.setAllowsFontSmoothing(true)

@@ -41,6 +41,9 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private let coverButton = NSButton(checkboxWithTitle: "首页单独", target: nil, action: nil)
     private let layoutButtons = NSSegmentedControl()
     private let filenameLabel = CenteredTextField(labelWithString: "尚未打开书籍")
+    private(set) var adjustmentWindow: PageAdjustmentWindow?
+    private let editPagesButton = NSButton(title: "调整页面…", target: nil, action: nil)
+    private let onlineButton = NSButton(title: "目录与封面…", target: nil, action: nil)
     private let renameButton = NSButton(title: "书籍信息与重命名…", target: nil, action: nil)
     private(set) var renameSheet: RenameSheet?
     private let rtlButton = NSButton(checkboxWithTitle: "从右至左", target: nil, action: nil)
@@ -166,7 +169,15 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         inspectionQueue.maxConcurrentOperationCount = 1; inspectionQueue.qualityOfService = .utility
         renameButton.title="图书信息…";renameButton.image=NSImage(systemSymbolName:"info.circle",accessibilityDescription:"书籍信息与重命名");renameButton.imagePosition = .imageLeading
         repairButton.title="页面校对…"
-        let filebar = NSStackView(views: [filenameLabel, repairButton, recognize, region, renameButton]); filebar.spacing = 10
+        onlineButton.target = self
+        onlineButton.action = #selector(showOnlineReferences)
+        onlineButton.bezelStyle = .rounded
+        onlineButton.toolTip = "在线查询目录与封面"
+        editPagesButton.target = self
+        editPagesButton.action = #selector(editPages)
+        editPagesButton.bezelStyle = .rounded
+        editPagesButton.toolTip = "调整单页或指定页码，另存为同格式副本"
+        let filebar = NSStackView(views: [filenameLabel, repairButton, editPagesButton, recognize, region, renameButton, onlineButton]); filebar.spacing = 10
         let body=readingSplit;body.isVertical=true;body.dividerStyle = .thin;body.delegate=self
         body.addArrangedSubview(sidebar);body.addArrangedSubview(scroll)
         body.setHoldingPriority(.init(rawValue:260),forSubviewAt:0);body.setHoldingPriority(.defaultLow,forSubviewAt:1)
@@ -434,6 +445,17 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         sheet.onClose = { [weak self] in self?.renameSheet = nil; self?.updateControls() }
         NativeDialog.present(sheet.window, on: window); sheet.prepareForDisplay(); updateControls()
     }
+    @objc func editPages() {
+        guard let book, PageAdjustmentWriter.supports(book), !window.hasDocumentDialog else { return }
+        let editor = PageAdjustmentWindow(book: book, current: state.page)
+        adjustmentWindow = editor
+        editor.onClose = { [weak self] in self?.adjustmentWindow = nil; self?.updateControls() }
+        editor.onSaved = { [weak self] output in
+            self?.status.stringValue = "已保存 " + output.lastPathComponent
+        }
+        NativeDialog.present(editor.window, on: window)
+        updateControls()
+    }
     @objc func chooseBook() { onOpenFiles?([]) }
     @objc func closeBook() { guard !window.hasDocumentDialog else { window.bringDocumentDialogForward(); return }; resetBookSession(clearSession: true) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { if window.hasDocumentDialog { window.bringDocumentDialogForward(); return false }; return true }
@@ -615,6 +637,8 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         rtlButton.state = state.rightToLeft ? .on : .off
         repairButton.isEnabled = book?.canCorrectPages == true && !window.hasDocumentDialog; auditButton.isEnabled = repairButton.isEnabled
         renameButton.isEnabled = book != nil && book?.isPDZ != true
+        onlineButton.isEnabled = book != nil && !window.hasDocumentDialog
+        editPagesButton.isEnabled = book.map(PageAdjustmentWriter.supports) == true && !window.hasDocumentDialog
         filenameLabel.stringValue = book?.url.lastPathComponent ?? "尚未打开书籍"; filenameLabel.toolTip = book?.url.path
         automaticContrast.state=state.automaticContrast ? .on:.off
         automaticContrast.isEnabled=book != nil
@@ -844,6 +868,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(showOnlineReferences): return !window.hasDocumentDialog
+        case #selector(editPages): return book.map(PageAdjustmentWriter.supports) == true && !window.hasDocumentDialog
         case #selector(repairPages): return book?.canCorrectPages == true && !window.hasDocumentDialog
         case #selector(editBook): return book != nil && book?.isPDZ != true && !window.hasDocumentDialog
         case #selector(renameZip), #selector(editInfo): return book != nil && book?.isPDZ != true && !window.hasDocumentDialog

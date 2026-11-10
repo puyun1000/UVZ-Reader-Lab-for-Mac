@@ -2,7 +2,7 @@
 set -eu
 LAB_VENDOR="${0:A:h}"
 LAB_JPEG="$LAB_VENDOR/../JPEG"
-LAB_FINGERPRINT=$(shasum -a 256 "$LAB_VENDOR/build-tools.sh" "$LAB_VENDOR/reader-safety.patch" "$LAB_VENDOR/djvulibre-3.5.30.tar.gz" "$LAB_JPEG/jpegsrc.v10.tar.gz" | shasum -a 256 | cut -d ' ' -f 1)
+LAB_FINGERPRINT=$(shasum -a 256 "$LAB_VENDOR/build-tools.sh" "$LAB_VENDOR/reader-safety.patch" "$LAB_VENDOR/replace-pages.cpp" "$LAB_VENDOR/djvulibre-3.5.30.tar.gz" "$LAB_JPEG/jpegsrc.v10.tar.gz" | shasum -a 256 | cut -d ' ' -f 1)
 if [[ "${1:-}" == --fingerprint ]]; then print -r -- "$LAB_FINGERPRINT"; exit 0; fi
 LAB_DEST="${1:?Supply destination directory}"
 LAB_TMP=$(mktemp -d "${TMPDIR:-/tmp}/uvz-djvu.XXXXXX")
@@ -22,4 +22,7 @@ grep -q '^#define NEED_JPEG_DECODER 1' config.h
 make -j4
 mkdir -p "$LAB_DEST"
 cp tools/ddjvu tools/djvused tools/c44 tools/cjb2 tools/djvumake "$LAB_DEST/"
+cp "$LAB_VENDOR/replace-pages.cpp" tools/djvm.cpp
+make -C tools djvm
+cp tools/djvm "$LAB_DEST/lab-djvu-replace"
 print -r -- "$LAB_FINGERPRINT" > "$LAB_DEST/build-id"
