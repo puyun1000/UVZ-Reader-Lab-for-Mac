@@ -34,10 +34,11 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     private let saveButton = NSButton(title: "保存", target: nil, action: nil)
     private(set) var pageRepair: PageRepairWindow?
     var onPageRepaired: ((BookArchive,[Int:Int]) -> Void)?
+    var beforeSave: (() throws -> Void)?
     var onSaved: (([URL]) -> Void)?
     var onClosed: (() -> Void)?
     private var busy = false
-    init(book: BookArchive) {
+    init(book: BookArchive, allowPageRepair: Bool = true) {
         self.book = book; draft = BookEditDraft(book: book)
         super.init()
         structuralUndo.groupsByEvent = false
@@ -58,7 +59,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         let warning = PageInspection.structural(book).count
         let checkHint = CenteredTextField(labelWithString: warning > 0 ? "发现 \(warning) 条页面编码提示" : "")
         checkHint.textColor = .systemOrange
-        let tabButtons = NSStackView(views: [modeControl, NSView(),checkHint,check]); tabButtons.spacing = 8
+        let tabButtons = NSStackView(views: [modeControl, NSView()] + (allowPageRepair ? [checkHint, check] : [])); tabButtons.spacing = 8
         let chapterView = tablePane(contentsTable, columns: [("title", "目录名称", 450), ("type", "页面类型", 90), ("page", "页号", 100), ("physical", "物理页", 85)], controls: [
             makeButton("前插", #selector(insertBefore)), makeButton("后插", #selector(addChapter)), makeButton("新增子项", #selector(addChild)), makeButton("删除", #selector(removeChapter)),
             makeButton("上移", #selector(moveUp)), makeButton("下移", #selector(moveDown)), makeButton("降一级", #selector(indent)), makeButton("升一级", #selector(outdent)), makeButton("展开", #selector(expandTree)), makeButton("折叠", #selector(collapseTree)), makeButton("改页码", #selector(offsetPages))])
@@ -396,9 +397,12 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
             _ = try draft.validated(for: book); _ = try draft.encodedInfo()
             busy = true; saveButton.isEnabled = false; contentsTable.isEnabled = false
             message.stringValue = "正在校验并保存，请稍候…"
-            let savingDraft = draft, savingBook = book, backup = AppSettings().backups
+            let savingDraft = draft, savingBook = book, backup = AppSettings().backups, validate = beforeSave
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let result = Result { try savingBook.saveEdits(savingDraft, backup: backup, preserveDates: AppSettings().preserveFileDates, writeInfo: false) }
+                let result = Result {
+                    try validate?()
+                    return try savingBook.saveEdits(savingDraft, backup: backup, preserveDates: AppSettings().preserveFileDates, writeInfo: false)
+                }
                 DispatchQueue.main.async {
                     guard let self else { return }; self.busy = false; self.saveButton.isEnabled = true; self.contentsTable.isEnabled = true
                     switch result {

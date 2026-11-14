@@ -43,7 +43,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private let filenameLabel = CenteredTextField(labelWithString: "尚未打开书籍")
     private(set) var adjustmentWindow: PageAdjustmentWindow?
     private let editPagesButton = NSButton(title: "调整页面…", target: nil, action: nil)
-    private let onlineButton = NSButton(title: "目录与封面…", target: nil, action: nil)
+    private let onlineButton = NSButton(title: "补书签…", target: nil, action: nil)
     private let renameButton = NSButton(title: "书籍信息与重命名…", target: nil, action: nil)
     private(set) var renameSheet: RenameSheet?
     private let rtlButton = NSButton(checkboxWithTitle: "从右至左", target: nil, action: nil)
@@ -59,13 +59,20 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private let defaults = UserDefaults.standard
     private var stateKey = ""
     private(set) var onlineReferences: OnlineReferences?
-    @objc func showOnlineReferences() {
-        if let existing=onlineReferences {existing.show(on:window);return}
+    @objc func showOnlineReferences() { showReferenceWindow(.both) }
+    @objc func supplementBookmarks() { showReferenceWindow(.bookmarks) }
+
+    private func showReferenceWindow(_ mode: OnlineReferences.Mode) {
+        if let existing = onlineReferences {
+            if existing.mode == mode { existing.show(on: window); return }
+            existing.close()
+        }
+        guard !window.hasDocumentDialog else { return }
         let source=book
-        let controller=OnlineReferences(ssid:book.map {FilenameDraft(book:$0).ss} ?? "")
+        let controller=OnlineReferences(ssid:book.map {FilenameDraft(book:$0).ss} ?? "", mode: mode)
         onlineReferences=controller
-        if let source {
-            controller.window.title="在线目录与封面 — "+source.title
+        if let source, !source.isPDZ {
+            controller.window.title=mode.title+" — "+source.title
             controller.onDirectory = {[weak self,weak controller] text in
                 guard let self,let controller,self.book === source else{return false}
                 NativeDialog.dismiss(controller.window)
@@ -170,14 +177,14 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         renameButton.title="图书信息…";renameButton.image=NSImage(systemSymbolName:"info.circle",accessibilityDescription:"书籍信息与重命名");renameButton.imagePosition = .imageLeading
         repairButton.title="页面校对…"
         onlineButton.target = self
-        onlineButton.action = #selector(showOnlineReferences)
+        onlineButton.action = #selector(supplementBookmarks)
         onlineButton.bezelStyle = .rounded
-        onlineButton.toolTip = "在线查询目录与封面"
+        onlineButton.toolTip = "查询书签并添加到目录草稿"
         editPagesButton.target = self
         editPagesButton.action = #selector(editPages)
         editPagesButton.bezelStyle = .rounded
         editPagesButton.toolTip = "调整单页或指定页码，另存为同格式副本"
-        let filebar = NSStackView(views: [filenameLabel, repairButton, editPagesButton, recognize, region, renameButton, onlineButton]); filebar.spacing = 10
+        let filebar = NSStackView(views: [filenameLabel, repairButton, editPagesButton, recognize, region, onlineButton, renameButton]); filebar.spacing = 10
         let body=readingSplit;body.isVertical=true;body.dividerStyle = .thin;body.delegate=self
         body.addArrangedSubview(sidebar);body.addArrangedSubview(scroll)
         body.setHoldingPriority(.init(rawValue:260),forSubviewAt:0);body.setHoldingPriority(.defaultLow,forSubviewAt:1)

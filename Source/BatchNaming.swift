@@ -22,7 +22,7 @@ struct NamingProposal: Encodable {
     let pages: [NamingPage]
     let notes: [String]
     let originalMetadata: [String:String]
-    let fingerprint: String
+    var fingerprint: String
     let selection: MetadataSelection
     private enum CodingKeys: String, CodingKey {
         case metadata, evidence, pages, notes, originalMetadata, fingerprint

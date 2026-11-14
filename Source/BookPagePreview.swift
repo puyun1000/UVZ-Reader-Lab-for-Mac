@@ -83,6 +83,7 @@ final class BatchBookPreview: NSStackView {
     private let next = NSButton(title: "下一页", target: nil, action: nil)
     private let queue = OperationQueue()
     private var generation = UUID()
+    private var pendingPage: Int?
     private var source: NamingSource?
     private(set) var url: URL?
     private(set) var page = 0
@@ -115,18 +116,19 @@ final class BatchBookPreview: NSStackView {
             addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         }
-        canvas.heightAnchor.constraint(greaterThanOrEqualToConstant: 175).isActive = true
+        canvas.heightAnchor.constraint(greaterThanOrEqualToConstant: 138).isActive = true
         canvas.setContentHuggingPriority(.defaultLow, for: .vertical)
         updateNavigation()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
 
-    func load(_ url: URL?) {
-        guard self.url != url else { return }
+    func load(_ url: URL?, page requestedPage: Int = 0, refresh: Bool = false) {
+        guard refresh || self.url != url else { return }
         self.url = url
         generation = UUID()
         queue.cancelAllOperations()
         source = nil
+        pendingPage = requestedPage
         page = 0
         canvas.show(nil)
         updateNavigation()
@@ -140,7 +142,9 @@ final class BatchBookPreview: NSStackView {
             DispatchQueue.main.async {
                 guard let self, self.generation == token else { return }
                 switch result {
-                case .success(let source): self.source = source; self.showPage(0)
+                case .success(let source):
+                    self.source = source
+                    self.showPage(min(max(self.pendingPage ?? 0, 0), source.pageCount - 1))
                 case .failure(let error): self.status.stringValue = error.localizedDescription
                 }
             }
@@ -149,7 +153,9 @@ final class BatchBookPreview: NSStackView {
     }
 
     func showPage(_ index: Int) {
-        guard let source, (0..<source.pageCount).contains(index) else { updateNavigation(); return }
+        guard let source else { pendingPage = index; return }
+        guard (0..<source.pageCount).contains(index) else { updateNavigation(); return }
+        pendingPage = nil
         page = index
         updateNavigation()
         let token = UUID()

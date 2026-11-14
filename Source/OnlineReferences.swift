@@ -47,21 +47,32 @@ final class OnlineReferences: NSObject,NSWindowDelegate {
     let ssid=CenteredTextField(),text=ChineseTextView(),image=NSImageView(),status=CenteredTextField(wrappingLabelWithString:""),quota=CenteredTextField(labelWithString:"")
     let bookmarkButton=NSButton(title:"查询目录",target:nil,action:nil),coverButton=NSButton(title:"查询封面",target:nil,action:nil),adopt=NSButton(title:"添加到目录编辑…",target:nil,action:nil)
     private var task:Task<Void,Never>?,coverData:Data?,coverSSID:String?,directorySSID:String?,closed=false
+    enum Mode {
+        case both, bookmarks
+        var title: String { self == .bookmarks ? "补书签" : "在线目录与封面" }
+    }
+    let mode: Mode
     private let referenceSplit=NSSplitView()
     private let session=URLSession(configuration:.ephemeral),sourceSSID:String
     var onDirectory:((String)->Bool)?,onClosed:(()->Void)?
-    init(ssid initial:String) {
+    init(ssid initial:String, mode: Mode = .both) {
+        self.mode = mode
         sourceSSID=initial;super.init();ssid.stringValue=initial;ssid.placeholderString="8位SS号";ssid.widthAnchor.constraint(equalToConstant:140).isActive=true
-        window.title="在线目录与封面";window.identifier = .init("UVZDocumentDialog");window.minSize=NSSize(width:680,height:480);window.isReleasedWhenClosed=false;window.delegate=self
+        window.title=mode.title;window.identifier = .init("UVZDocumentDialog");window.minSize=NSSize(width:680,height:480);window.isReleasedWhenClosed=false;window.delegate=self
         for (button,action) in [(bookmarkButton,#selector(fetchDirectory)),(coverButton,#selector(fetchCover)),(adopt,#selector(adoptDirectory))] {button.target=self;button.action=action;button.bezelStyle = .rounded}
-        let controls=NSStackView(views:[CenteredTextField(labelWithString:"SS号"),ssid,bookmarkButton,coverButton,NSView(),button("打开来源网站",#selector(openWebsite))]);controls.spacing=8;controls.heightAnchor.constraint(equalToConstant:28).isActive=true
-        let explanation=CenteredTextField(wrappingLabelWithString:"来源：Wenbin Fan 的读秀工具。仅在点击查询时发送SS号，不上传图书。第三方服务有每日IP配额，可能没有对应目录；封面通常是小图，只作参考，不自动替换原书页面。")
+        bookmarkButton.title = mode == .bookmarks ? "查询书签" : "查询目录"
+        var actions: [NSView] = [CenteredTextField(labelWithString:"SS号"), ssid, bookmarkButton]
+        if mode == .both { actions.append(coverButton) }
+        let controls = NSStackView(views: actions + [NSView(),button("打开来源网站",#selector(openWebsite))]);controls.spacing=8;controls.heightAnchor.constraint(equalToConstant:28).isActive=true
+        let explanation = CenteredTextField(wrappingLabelWithString: "由 Wenbin Fan 的读秀工具提供。点击查询时发送 SS 号，查询受每日配额限制。")
         explanation.font = .systemFont(ofSize:12);explanation.textColor = .secondaryLabelColor
         let split=referenceSplit;split.isVertical=true;split.dividerStyle = .thin;split.heightAnchor.constraint(greaterThanOrEqualToConstant:160).isActive=true;split.setContentHuggingPriority(.init(1),for:.vertical)
         let scroll=ocrTextScroll(text,editable:true,font:.monospacedSystemFont(ofSize:13,weight:.regular));scroll.borderType = .bezelBorder;split.addArrangedSubview(scroll)
-        image.imageScaling = .scaleProportionallyUpOrDown;image.setAccessibilityLabel("查询返回的封面参考图");split.addArrangedSubview(image)
+        image.imageScaling = .scaleProportionallyUpOrDown;image.setAccessibilityLabel("查询返回的封面参考图");if mode == .both { split.addArrangedSubview(image) }
         status.font = .systemFont(ofSize:12);quota.font = .systemFont(ofSize:11);quota.textColor = .secondaryLabelColor
-        let bottom=NSStackView(views:[adopt,button("复制目录",#selector(copyDirectory)),NSView(),button("另存封面…",#selector(saveCover)),button("关闭",#selector(close))]);bottom.spacing=8;bottom.heightAnchor.constraint(equalToConstant:28).isActive=true
+        var footer: [NSView] = [adopt,button(mode == .bookmarks ? "复制书签" : "复制目录",#selector(copyDirectory)),NSView()]
+        if mode == .both { footer.append(button("另存封面…",#selector(saveCover))) }
+        let bottom = NSStackView(views: footer + [button("关闭",#selector(close))]);bottom.spacing=8;bottom.heightAnchor.constraint(equalToConstant:28).isActive=true
         let credit=CenteredTextField(labelWithAttributedString:NSAttributedString(string:"wbfan.site/duxiu",attributes:[.link:URL(string:"https://wbfan.site/duxiu/")!]));credit.allowsEditingTextAttributes=true;credit.isSelectable=true;credit.font = .systemFont(ofSize:11)
         let root=NSStackView(views:[controls,explanation,split,status,quota,credit,bottom]);root.orientation = .vertical;root.distribution = .fill;root.alignment = .leading;root.spacing=12;root.translatesAutoresizingMaskIntoConstraints=false;let host=NSView();window.contentView=host;host.addSubview(root)
         for v in [controls,explanation,split,status,quota,bottom] {v.widthAnchor.constraint(equalTo:root.widthAnchor).isActive=true;if v !== split {v.setContentHuggingPriority(.required,for:.vertical)}}
@@ -69,10 +80,10 @@ final class OnlineReferences: NSObject,NSWindowDelegate {
         status.stringValue="查询结果可核对后导入目录草稿；只有在目录编辑器保存后才改动图书。";adopt.isEnabled=false
     }
     private func button(_ title:String,_ action:Selector)->NSButton {let b=NSButton(title:title,target:self,action:action);b.bezelStyle = .rounded;return b}
-    func show(on parent:NSWindow? = nil) {adopt.isHidden=onDirectory == nil;if let parent {NativeDialog.present(window,on:parent)} else {window.center();window.makeKeyAndOrderFront(nil)};window.contentView?.layoutSubtreeIfNeeded();referenceSplit.adjustSubviews();referenceSplit.setPosition(max(300,window.contentView!.bounds.width*0.63),ofDividerAt:0)}
+    func show(on parent:NSWindow? = nil) {adopt.isHidden=onDirectory == nil;if let parent {NativeDialog.present(window,on:parent)} else {window.center();window.makeKeyAndOrderFront(nil)};window.contentView?.layoutSubtreeIfNeeded();referenceSplit.adjustSubviews();if mode == .both { referenceSplit.setPosition(max(300,window.contentView!.bounds.width*0.63),ofDividerAt:0) }}
     @objc func openWebsite() {NSWorkspace.shared.open(URL(string:"https://wbfan.site/duxiu/")!)}
     @objc func fetchDirectory() {fetch(cover:false)}
-    @objc func fetchCover() {fetch(cover:true)}
+    @objc func fetchCover() { if mode == .both { fetch(cover:true) } }
     private func fetch(cover:Bool) {
         let value=ssid.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
         do {

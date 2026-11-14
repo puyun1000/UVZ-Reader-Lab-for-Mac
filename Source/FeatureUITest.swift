@@ -66,9 +66,52 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
         let outputBook = output.deletingPathExtension().appendingPathExtension("pdf")
         switch stage {
         case 0:
-            guard batch.items.count == 2, batch.bookPreview.canvas.hasPage else { return }
+            guard batch.items.count == 2, !batch.isAnalysing, batch.bookPreview.canvas.hasPage else { return }
             try check(batch.bookPreview.url == pdf && batch.bookPreview.pageCount == 32, "固定预览打开完整 PDF")
             try check(batch.bookPreview.canvas.documentView is VectorPageView, "固定预览采用矢量页")
+            batch.window.contentView?.layoutSubtreeIfNeeded()
+            let viewport = batch.table.enclosingScrollView!.frame
+            try check(viewport.width > batch.window.contentView!.bounds.width * 0.55 && viewport.height > 420,
+                      "书单优先分配宽度和高度")
+            try check(batch.items.allSatisfy { !$0.included }, "选书与自动分析均不勾选未操作的图书")
+            let normalSize = batch.window.contentView!.bounds.size
+            batch.window.setContentSize(NSSize(width: 1040, height: 650))
+            batch.window.contentView?.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.04))
+            let narrowList = batch.table.enclosingScrollView!.frame.width
+            let narrowPreview = batch.bookPreview.frame.width
+            guard narrowList > narrowPreview && narrowPreview >= 360 else {
+                throw ReaderFailure("窄窗口尺寸未通过，书单 \(narrowList)，预览 \(narrowPreview)")
+            }
+            try check(true, "窄窗口仍优先保留书单且可预览")
+            batch.window.setContentSize(normalSize)
+            batch.window.contentView?.layoutSubtreeIfNeeded()
+            batch.finalName.stringValue = "手工文件名"
+            batch.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: batch.finalName))
+            try check(batch.items[0].customName == "手工文件名" && !batch.items[0].reviewed && !batch.items[0].included,
+                      "只编辑文件名时仍需核对书目")
+            let field = batch.fields[1]
+            field.stringValue = "人工核对书名"
+            batch.controlTextDidChange(Notification(name:NSControl.textDidChangeNotification,object:field))
+            try check(batch.items[0].reviewed && batch.items[0].included && !batch.items[1].included,
+                      "改书目信息只自动勾选当前图书")
+
+            try check(batch.items[0].stem == "手工文件名", "修改书目字段后保留手工文件名")
+            let firstRow = batch.table.rect(ofRow: 0), secondRow = batch.table.rect(ofRow: 1)
+            let start = batch.table.convert(NSPoint(x: 80, y: firstRow.midY), to: nil)
+            let end = batch.table.convert(NSPoint(x: 135, y: secondRow.midY), to: nil)
+            func mouse(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent {
+                NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: batch.window.windowNumber, context: nil, eventNumber: 1,
+                                   clickCount: 1, pressure: 1)!
+            }
+            NSApp.postEvent(mouse(.leftMouseDragged, end), atStart: false)
+            NSApp.postEvent(mouse(.leftMouseUp, end), atStart: false)
+            batch.table.mouseDown(with: mouse(.leftMouseDown, start))
+            try check(batch.items.allSatisfy(\.included) && !batch.items[1].reviewed,
+                      "在文件名单元格内拖框可同时勾选多本并保留核对状态")
+            batch.toggleAll()
+            try check(batch.items.allSatisfy { !$0.included }, "表头可取消框选后的全部勾选")
             batch.bookPreview.pageField.stringValue = "16"
             _ = NSApplication.shared.sendAction(batch.bookPreview.pageField.action!, to: batch.bookPreview.pageField.target, from: batch.bookPreview.pageField)
             stage = 1
@@ -82,6 +125,35 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
             guard batch.bookPreview.canvas.hasPage, batch.bookPreview.url?.lastPathComponent == "b.uvz" else { return }
             try check(batch.bookPreview.page == 0 && batch.bookPreview.pageCount == 6, "点击另一行时同一窗格实时换书")
             try check(batch.bookPreview.canvas.documentView is PageProofImageView, "UVZ 显示原始图像")
+            batch.reviewed.state = .on
+            batch.reviewChanged()
+            try check(batch.items[1].included && !batch.items[0].included, "手动确认核对后自动勾选选中图书")
+            batch.supplementBookmarks()
+            stage = 7
+        case 7:
+            guard let query = batch.referenceWindow else { return }
+            try check(query.mode == .bookmarks && query.coverButton.superview == nil, "批量补书签窗口仅显示书签查询")
+            try check(query.ssid.stringValue == "22222222", "补书签自动带入选中书目的 SS 号")
+            let book = batch.items[1].url
+            original = try Data(contentsOf: book)
+            query.receiveDirectory("测试书签\t1", ssid: "22222222")
+            query.adoptDirectory()
+            guard let editor = batch.bookmarkEditor else { throw ReaderFailure("未打开目录草稿") }
+            let unchanged = try Data(contentsOf: book) == original
+            try check(editor.textView.string.contains("测试书签") && unchanged, "采用书签后先进入目录草稿")
+            editor.saveDraft()
+            stage = 8
+        case 8:
+            guard batch.bookmarkEditor == nil, batch.bookPreview.canvas.hasPage,
+                  batch.items[1].proposal?.fingerprint == (try BatchNaming.fingerprint(batch.items[1].url)) else { return }
+            let saved = try BookArchive(url: batch.items[1].url)
+            try check(saved.chapters.contains { $0.title == "测试书签" } && batch.items[1].included,
+                      "保存书签后更新批量草稿文件指纹并保留勾选")
+            batch.table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            stage = 9
+        case 9:
+            guard batch.bookPreview.canvas.hasPage else { return }
+            try check(batch.bookPreview.page == 15, "切回图书恢复上次预览页码")
             batch.closeWindow()
             let reader = ReaderController()
             reader.smokeMode = true
@@ -96,13 +168,13 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
                 return view.subviews.lazy.compactMap { button(title, in: $0) }.first
             }
             let view = reader.window.contentView!
-            guard let query = button("目录与封面…", in: view), let bar = query.superview as? NSStackView,
-                  let i = bar.arrangedSubviews.firstIndex(where: { $0 === query }), i > 0 else {
+            guard let query = button("补书签…", in: view), let bar = query.superview as? NSStackView,
+                  let i = bar.arrangedSubviews.firstIndex(where: { $0 === query }), i + 1 < bar.arrangedSubviews.count else {
                 throw ReaderFailure("找不到在线查询工具栏按钮")
             }
-            try check((bar.arrangedSubviews[i-1] as? NSButton)?.title == "图书信息…", "在线查询入口紧邻图书信息")
+            try check((bar.arrangedSubviews[i+1] as? NSButton)?.title == "图书信息…", "在线查询入口紧邻图书信息")
             query.performClick(nil)
-            try check(reader.onlineReferences != nil, "按钮打开目录与封面查询")
+            try check(reader.onlineReferences?.mode == .bookmarks && reader.onlineReferences?.coverButton.superview == nil, "阅读按钮打开仅查询书签的窗口")
             reader.onlineReferences?.close()
             button("调整页面…", in: view)?.performClick(nil)
             try check(reader.adjustmentWindow != nil, "工具栏打开页面调整")

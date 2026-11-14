@@ -100,15 +100,86 @@ final class BatchSelectionHeader: NSTableHeaderView {
     override func layout() { super.layout(); guard tableView?.tableColumns.isEmpty == false else { return }; let rect = headerRect(ofColumn:0); check.frame = CGRect(x:rect.midX-9,y:rect.midY-9,width:18,height:18) }
 }
 
+final class BatchBookTable: NSTableView {
+    private final class SelectionBox: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func draw(_ dirtyRect: NSRect) {
+            NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+            bounds.fill()
+            NSColor.controlAccentColor.setStroke()
+            NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5)).stroke()
+        }
+    }
+
+    var clickRow: ((Int) -> Void)?
+    var includeRows: ((IndexSet) -> Void)?
+    private let selectionBox = SelectionBox()
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window, event.type == .leftMouseDown else { super.mouseDown(with: event); return }
+        let start = convert(event.locationInWindow, from: nil)
+        let firstRow = row(at: start)
+        window.makeFirstResponder(self)
+        var dragging = false
+        var latest = event
+        defer { selectionBox.removeFromSuperview() }
+
+        while true {
+            if let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged],
+                                           until: Date(timeIntervalSinceNow: 0.04),
+                                           inMode: .eventTracking, dequeue: true) {
+                latest = next
+                if next.type == .leftMouseUp { break }
+            } else if !dragging {
+                continue
+            }
+            let point = convert(latest.locationInWindow, from: nil)
+            if !dragging, hypot(point.x - start.x, point.y - start.y) >= 4 {
+                dragging = true
+                wantsLayer = true
+                selectionBox.wantsLayer = true
+                selectionBox.layer?.zPosition = 10
+                addSubview(selectionBox, positioned: .above, relativeTo: nil)
+            }
+            if dragging {
+                autoscroll(with: latest)
+                selectionBox.frame = box(from: start, to: convert(latest.locationInWindow, from: nil))
+                selectionBox.needsDisplay = true
+                displayIfNeeded()
+            }
+        }
+
+        if dragging {
+            let area = box(from: start, to: convert(latest.locationInWindow, from: nil))
+            let rows = rows(in: area)
+            if rows.location != NSNotFound, rows.length > 0 {
+                includeRows?(IndexSet(integersIn: rows.location..<(rows.location + rows.length)))
+            }
+        } else if firstRow >= 0 {
+            selectRowIndexes(IndexSet(integer: firstRow), byExtendingSelection: false)
+            if column(at: start) == 0 { clickRow?(firstRow) }
+        }
+    }
+
+    private func box(from start: NSPoint, to end: NSPoint) -> NSRect {
+        NSRect(x: min(start.x, end.x), y: min(start.y, end.y),
+               width: max(2, abs(start.x - end.x)), height: max(2, abs(start.y - end.y)))
+    }
+}
+
+/// Clicks in the checkbox column are tracked by the table, including drags that start on the checkbox.
+private final class BatchRowCheckbox: NSButton {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     let recognitionControls = RecognitionControls()
     let window = ChineseWindow(contentRect:NSRect(x:0,y:0,width:1380,height:940),styleMask:[.titled,.closable,.resizable,.miniaturizable],backing:.buffered,defer:false)
-    let table = NSTableView(), evidenceTable = NSTableView()
+    let table = BatchBookTable(), evidenceTable = NSTableView()
     let bookPreview = BatchBookPreview()
     let recursive = NSButton(checkboxWithTitle:"包含子文件夹",target:nil,action:nil)
     let useOCR = NSButton(checkboxWithTitle:"识别图像并交叉核对",target:nil,action:nil)
     let forcePDFOCR = NSButton(checkboxWithTitle:"PDF 逐页 OCR",target:nil,action:nil)
-    let metadataHint = CenteredTextField(labelWithString:"改名时同步保存全部核对后的图书信息")
     let preserveDates = NSButton(checkboxWithTitle:"保持文件日期",target:nil,action:nil)
     let reviewed = NSButton(checkboxWithTitle:"已人工核对本书的冲突、推测及缺失项",target:nil,action:nil)
     let uniformStyle = NSPopUpButton()
@@ -124,6 +195,19 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     private let note = CenteredTextField(wrappingLabelWithString:"选择文件夹后逐本分析。候选建议不会自动改名，需勾选并应用。")
     private let scanButton = NSButton(title:"分析未完成项",target:nil,action:nil)
     private let stopButton = NSButton(title:"停止",target:nil,action:nil)
+    private let supplementButton = NSButton(title: "补书签…", target: nil, action: nil)
+    private let inclusionSummary = CenteredTextField(labelWithString: "已勾选 0 本")
+    private let originalName = CenteredTextField(wrappingLabelWithString: "")
+    private let nameExtension = CenteredTextField(labelWithString: "")
+    private let sources = NSPopUpButton()
+    private let detailScroll = NSScrollView()
+    private let split = NSSplitView()
+    private(set) var referenceWindow: OnlineReferences?
+    private(set) var bookmarkEditor: BookEditor?
+    private var loadingBookmarks = false
+    private var lastPages: [URL:Int] = [:]
+    private var sourceField: String?
+    private var bookmarkFlowActive: Bool { loadingBookmarks || referenceWindow != nil || bookmarkEditor != nil }
     private let applyButton = NSButton(title:"保存信息并改名",target:nil,action:nil)
     private let detailNote = CenteredTextField(wrappingLabelWithString:"")
     private let queue = OperationQueue()
@@ -139,67 +223,201 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     var onRenamed: ((URL,URL) -> Void)?
     var onClosed: (() -> Void)?
     override init() {
-        super.init(); window.title = "批量规范命名"; window.isReleasedWhenClosed = false; window.minSize = NSSize(width:1100,height:790); window.delegate = self; window.identifier = .init("UVZBatchNaming")
+        super.init(); window.title = "批量规范命名"; window.isReleasedWhenClosed = false; window.minSize = NSSize(width:1040,height:650); window.delegate = self; window.identifier = .init("UVZBatchNaming")
         queue.maxConcurrentOperationCount = 1; queue.qualityOfService = .utility
         useOCR.target = self; useOCR.action = #selector(ocrOptionChanged)
         forcePDFOCR.toolTip = "忽略 PDF 文字层，对首尾候选页逐张识别；适合文字层缺字或与原图不符的文件。"
         useOCR.state = .on; preserveDates.state = AppSettings().preserveFileDates ? .on : .off
         uniformStyle.addItems(withTitles:namingStyles.map(\.title)); uniformStyle.selectItem(at:namingStyles.firstIndex(where:{$0.id == NamingPreferences.preferred()}) ?? 0); uniformStyle.target = self; uniformStyle.action = #selector(uniformStyleChanged)
         folderLabel.lineBreakMode = .byTruncatingMiddle; folderLabel.setContentCompressionResistancePriority(.defaultLow,for:.horizontal)
-        let choose = button("选择文件夹…",#selector(chooseFolder)); let rescan = button("重新扫描",#selector(rescanFolder))
-        let top = NSStackView(views:[choose,folderLabel,rescan,recursive,useOCR]); top.spacing = 10
+        let choose = button("选择文件夹…", #selector(chooseFolder))
+        let rescan = button("重新扫描", #selector(rescanFolder))
         scanButton.target = self; scanButton.action = #selector(analysePending); scanButton.bezelStyle = .rounded
         stopButton.target = self; stopButton.action = #selector(stop); stopButton.bezelStyle = .rounded
-        let tools = NSStackView(views:[scanButton,stopButton,button("检查重名",#selector(checkNames)),NSView(),CenteredTextField(labelWithString:"命名格式"),uniformStyle,button("管理格式…",#selector(manageTemplates))]); tools.spacing = 8
-        configure(table,columns:[("include","",34),("file","当前文件",170),("name","规范名称",260),("status","核对状态",120)])
-        selectionHeader.check.target = self; selectionHeader.check.action = #selector(toggleAll); table.headerView = selectionHeader
-        let list = NSScrollView(); list.documentView = table; list.hasVerticalScroller = true; list.hasHorizontalScroller = true; list.borderType = .bezelBorder
+        let settings = NSPopover()
+        let settingsStack = NSStackView(views: [
+            recursive, useOCR,
+            NSStackView(views: [CenteredTextField(labelWithString: "识别语言"), recognitionControls.language]),
+            NSStackView(views: [CenteredTextField(labelWithString: "版式"), recognitionControls.layout]),
+            forcePDFOCR
+        ])
+        settingsStack.orientation = .vertical
+        settingsStack.alignment = .leading
+        settingsStack.spacing = 8
+        settingsStack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        let settingsController = NSViewController()
+        settingsController.view = settingsStack
+        settings.contentViewController = settingsController
+        settings.behavior = .transient
+        let settingsButton = button("识别设置…", #selector(showRecognitionSettings(_:)))
+        recognitionSettings = settings
+        let top = NSStackView(views: [choose, folderLabel, NSView(), rescan, scanButton, stopButton, settingsButton])
+        top.spacing = 8
+
+        configure(table, columns: [("include","",42),("file","原文件名",260),("name","最终文件名",270),("status","状态",100)])
+        table.rowHeight = 49
+        table.usesAutomaticRowHeights = false
+        table.clickRow = { [weak self] row in self?.setIncluded(IndexSet(integer: row), to: nil) }
+        table.includeRows = { [weak self] rows in self?.setIncluded(rows, to: true) }
+        selectionHeader.check.target = self
+        selectionHeader.check.action = #selector(toggleAll)
+        table.headerView = selectionHeader
+        let list = NSScrollView()
+        list.documentView = table
+        list.hasVerticalScroller = true
+        list.borderType = .bezelBorder
+        let listTitle = CenteredTextField(labelWithString: "书单")
+        listTitle.font = .systemFont(ofSize: 13, weight: .semibold)
+        let listHint = CenteredTextField(labelWithString: "拖出选框可勾选多本")
+        listHint.textColor = .secondaryLabelColor
+        listHint.font = .systemFont(ofSize: 11)
+        let formatRow = NSStackView(views: [listTitle, listHint, NSView(), CenteredTextField(labelWithString: "批次命名格式"), uniformStyle, button("管理…", #selector(manageTemplates))])
+        formatRow.spacing = 6
+        let books = verticalStack([formatRow, list], spacing: 6)
+        list.setContentHuggingPriority(.defaultLow, for: .vertical)
+
         for (key,field) in zip(fieldKeys,fields) { field.identifier = .init(key); field.delegate = self }
-        let grid = NSGridView(views:fieldKeys.indices.map { [CenteredTextField(labelWithString:fieldKeys[$0]),fields[$0],fieldStates[$0]] }); grid.rowSpacing = 5; grid.columnSpacing = 8; grid.column(at:0).width = 66; grid.column(at:2).width = 90
-        for state in fieldStates { state.font = .systemFont(ofSize:11); state.textColor = .secondaryLabelColor }
-        for index in fieldKeys.indices { grid.row(at:index).height = 26 }
-        reviewed.target = self; reviewed.action = #selector(reviewChanged)
-        configure(evidenceTable,columns:[("field","字段",65),("value","来源值",240),("source","来源",90),("page","物理页",50)])
-        evidenceTable.target = self; evidenceTable.doubleAction = #selector(adoptEvidence)
-        let evidence = NSScrollView(); evidence.documentView = evidenceTable; evidence.hasVerticalScroller = true; evidence.hasHorizontalScroller = true; evidence.borderType = .bezelBorder; evidence.heightAnchor.constraint(greaterThanOrEqualToConstant:100).isActive = true
-        let evidenceTools = NSStackView(views:[button("采用所选来源值",#selector(adoptEvidence)),button("原图与识别原文…",#selector(showSources)),NSView()]); evidenceTools.spacing = 8
-        detailNote.font = .systemFont(ofSize:11); detailNote.textColor = .secondaryLabelColor; detailNote.maximumNumberOfLines = 4
-        let detail = NSStackView(views:[CenteredTextField(labelWithString:"图书信息与来源核对"),grid,reviewed,detailNote,evidence,evidenceTools]); detail.orientation = .vertical; detail.alignment = .leading; detail.spacing = 8
-        for view in [grid,reviewed,detailNote,evidence,evidenceTools] { view.widthAnchor.constraint(equalTo:detail.widthAnchor).isActive = true }
-        let books = NSSplitView()
-        books.dividerStyle = .thin
-        books.delegate = self
-        books.addArrangedSubview(list)
-        books.addArrangedSubview(bookPreview)
-        list.heightAnchor.constraint(greaterThanOrEqualToConstant:120).isActive = true
-        books.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
-        let split = NSSplitView(); split.delegate = self; split.isVertical = true; split.dividerStyle = .thin; split.addArrangedSubview(books); split.addArrangedSubview(detail)
-        books.widthAnchor.constraint(greaterThanOrEqualToConstant:450).isActive = true; detail.widthAnchor.constraint(greaterThanOrEqualToConstant:490).isActive = true; split.heightAnchor.constraint(greaterThanOrEqualToConstant:400).isActive = true
-        formatHint.font = .systemFont(ofSize:11); formatHint.textColor = .secondaryLabelColor
-        finalName.delegate = self; finalName.identifier = .init("final-name"); finalName.placeholderString = "可手工修订最终名称，扩展名自动保留"
-        let nameRow = NSStackView(views:[CenteredTextField(labelWithString:"最终名称"),finalName]); nameRow.spacing = 8
-        let options = NSStackView(views:[metadataHint,preserveDates,NSView(),button("导出清单…",#selector(exportCSV))]); options.spacing = 12
-        note.font = .systemFont(ofSize:11); note.textColor = .secondaryLabelColor
+        let grid = NSGridView(views: fieldKeys.indices.map { [CenteredTextField(labelWithString:fieldKeys[$0]),fields[$0],fieldStates[$0]] })
+        grid.rowSpacing = 3
+        grid.columnSpacing = 7
+        grid.column(at: 0).width = 54
+        grid.column(at: 2).width = 70
+        for state in fieldStates { state.font = .systemFont(ofSize: 11); state.textColor = .secondaryLabelColor }
+        for index in fieldKeys.indices { grid.row(at:index).height = 23 }
+
+        reviewed.title = "已人工核对"
+        reviewed.target = self
+        reviewed.action = #selector(reviewChanged)
+        supplementButton.target = self
+        supplementButton.action = #selector(supplementBookmarks)
+        supplementButton.bezelStyle = .rounded
+        let heading = CenteredTextField(labelWithString: "书目信息")
+        heading.font = .systemFont(ofSize: 13, weight: .semibold)
+        let detailHeading = NSStackView(views: [heading, NSView(), supplementButton, reviewed])
+        detailHeading.spacing = 7
+        originalName.font = .systemFont(ofSize: 11)
+        originalName.textColor = .secondaryLabelColor
+        originalName.maximumNumberOfLines = 2
+        detailNote.font = .systemFont(ofSize: 11)
+        detailNote.textColor = .secondaryLabelColor
+        detailNote.maximumNumberOfLines = 3
+        formatHint.font = .systemFont(ofSize: 11)
+        formatHint.textColor = .secondaryLabelColor
+        formatHint.lineBreakMode = .byTruncatingTail
+        finalName.delegate = self
+        finalName.identifier = .init("final-name")
+        finalName.placeholderString = "最终名称"
+        let nameRow = NSStackView(views: [CenteredTextField(labelWithString: "最终名称"), finalName, nameExtension])
+        nameRow.spacing = 6
+
+        configure(evidenceTable, columns: [("field","字段",55),("value","来源值",180),("source","来源",75),("page","页",34)])
+        evidenceTable.target = self
+        evidenceTable.doubleAction = #selector(adoptEvidence)
+        let evidence = NSScrollView()
+        evidence.documentView = evidenceTable
+        evidence.hasVerticalScroller = true
+        evidence.borderType = .bezelBorder
+        evidence.heightAnchor.constraint(equalToConstant: 108).isActive = true
+        sources.addItems(withTitles: ["所有字段"] + fieldKeys)
+        sources.target = self
+        sources.action = #selector(sourceFilterChanged)
+        let evidenceTools = NSStackView(views: [sources, NSView(), button("采用来源",#selector(adoptEvidence)),button("识别原文…",#selector(showSources))])
+        evidenceTools.spacing = 5
+        let detail = verticalStack([detailHeading, originalName, detailNote, grid, formatHint, nameRow, evidenceTools, evidence], spacing: 6)
+        let document = NSView()
+        detail.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(detail)
+        NSLayoutConstraint.activate([
+            detail.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            detail.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            detail.topAnchor.constraint(equalTo: document.topAnchor),
+            detail.bottomAnchor.constraint(equalTo: document.bottomAnchor)
+        ])
+        detailScroll.documentView = document
+        detailScroll.hasVerticalScroller = true
+        detailScroll.autohidesScrollers = true
+        document.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            document.widthAnchor.constraint(equalTo: detailScroll.contentView.widthAnchor),
+            document.leadingAnchor.constraint(equalTo: detailScroll.contentView.leadingAnchor),
+            document.topAnchor.constraint(equalTo: detailScroll.contentView.topAnchor)
+        ])
+
+        let side = verticalStack([bookPreview, detailScroll], spacing: 9, leadingInset: 10)
+        bookPreview.heightAnchor.constraint(equalToConstant: 236).isActive = true
+        detailScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 265).isActive = true
+        detailScroll.setContentHuggingPriority(.defaultLow, for: .vertical)
+        split.delegate = self
+        split.isVertical = true
+        split.dividerStyle = .thin
+        split.addArrangedSubview(books)
+        split.addArrangedSubview(side)
+        split.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        split.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
+        side.widthAnchor.constraint(greaterThanOrEqualToConstant: 395).isActive = true
+        side.widthAnchor.constraint(lessThanOrEqualTo: split.widthAnchor, multiplier: 0.45).isActive = true
+
+        note.font = .systemFont(ofSize: 11)
+        note.textColor = .secondaryLabelColor
         note.lineBreakMode = .byTruncatingMiddle
-        note.setContentCompressionResistancePriority(.defaultLow,for:.horizontal)
-        applyButton.target = self; applyButton.action = #selector(applySelected); applyButton.bezelStyle = .rounded
-        let footer = NSStackView(views:[note,NSView(),button("关闭",#selector(closeWindow)),applyButton]); footer.spacing = 10
-        let recognitionOptions = NSStackView(views:[CenteredTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,forcePDFOCR,NSView()]); recognitionOptions.spacing = 8
-        let root = NSStackView(views:[top,tools,recognitionOptions,split,formatHint,nameRow,options,footer]); root.orientation = .vertical; root.alignment = .leading; root.spacing = 10
-        let host = NSView(); window.contentView = host; root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
-        NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo:host.leadingAnchor,constant:16),root.trailingAnchor.constraint(equalTo:host.trailingAnchor,constant:-16),root.topAnchor.constraint(equalTo:host.topAnchor,constant:16),root.bottomAnchor.constraint(equalTo:host.bottomAnchor,constant:-16)])
-        for view in [top,tools,recognitionOptions,split,formatHint,nameRow,options,footer] { view.widthAnchor.constraint(equalTo:root.widthAnchor).isActive = true }
-        split.setContentHuggingPriority(.defaultLow,for:.vertical)
-        window.contentView?.layoutSubtreeIfNeeded(); split.setPosition(680,ofDividerAt:0); books.setPosition(205,ofDividerAt:0); loadDetails(); updateControls()
+        note.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        inclusionSummary.font = .systemFont(ofSize: 12, weight: .medium)
+        applyButton.toolTip = "保存勾选图书的书目信息并改名"
+        applyButton.target = self
+        applyButton.action = #selector(applySelected)
+        applyButton.bezelStyle = .rounded
+        let footer = NSStackView(views: [inclusionSummary, preserveDates, button("导出清单…", #selector(exportCSV)), NSView(),
+                                      button("检查重名", #selector(checkNames)), applyButton])
+        footer.spacing = 8
+        let root = verticalStack([top, split, note, footer], spacing: 9)
+        let host = NSView()
+        window.contentView = host
+        root.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(root)
+        NSLayoutConstraint.activate([
+            root.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: 14),
+            root.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -14),
+            root.topAnchor.constraint(equalTo: host.topAnchor, constant: 14),
+            root.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -14)
+        ])
+        split.setContentHuggingPriority(.defaultLow, for: .vertical)
+        loadDetails()
+        updateControls()
+    }
+
+    private var recognitionSettings: NSPopover?
+    @objc private func showRecognitionSettings(_ sender: NSButton) {
+        recognitionSettings?.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+    }
+
+    private func verticalStack(_ views: [NSView], spacing: CGFloat, leadingInset: CGFloat = 0) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.distribution = .fill
+        stack.spacing = spacing
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: leadingInset, bottom: 0, right: 0)
+        for view in views {
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -leadingInset).isActive = true
+        }
+        return stack
     }
     private func button(_ title: String,_ action: Selector) -> NSButton { let b = NSButton(title:title,target:self,action:action); b.bezelStyle = .rounded; return b }
     private func configure(_ table: NSTableView,columns: [(String,String,CGFloat)]) {
         for (id,title,width) in columns { let c = NSTableColumn(identifier:.init(id)); c.title = title; c.width = width; table.addTableColumn(c) }
         table.delegate = self; table.dataSource = self; table.rowHeight = 29; table.usesAlternatingRowBackgroundColors = true; table.columnAutoresizingStyle = .noColumnAutoresizing
     }
+    private var splitPositioned = false
     func show(choose: Bool = false) {
         if let screen = NSScreen.main?.visibleFrame { var frame = window.frame; frame.size.width = min(frame.width,screen.width-32); frame.size.height = min(frame.height,screen.height-32); frame.origin = CGPoint(x:screen.midX-frame.width/2,y:screen.midY-frame.height/2); window.setFrame(frame,display:false) }
-        window.makeKeyAndOrderFront(nil); window.contentView?.layoutSubtreeIfNeeded(); fitTableColumns(); if choose { chooseFolder() }
+        window.makeKeyAndOrderFront(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        if !splitPositioned {
+            split.setPosition(split.bounds.width * 0.64, ofDividerAt: 0)
+            splitPositioned = true
+        }
+        fitTableColumns()
+        if choose { chooseFolder() }
     }
     func fitTableColumns() {
         guard table.tableColumns.count == 4,evidenceTable.tableColumns.count == 4 else { return }
@@ -209,13 +427,30 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
             table.setFrameSize(NSSize(width:widths.reduce(0,+)+table.intercellSpacing.width*CGFloat(widths.count),height:table.frame.height))
         }
         let left = table.enclosingScrollView?.contentView.frame.width ?? 600, leftSpace = table.intercellSpacing.width*4+2
-        let file = max(90,left*0.25),status: CGFloat = 96,check: CGFloat = 32
+        let status: CGFloat = 101, check: CGFloat = 36
+        let file = max(100, (left - check - status - leftSpace) * 0.49)
         fit(table,widths:[check,file,max(60,left-check-file-status-leftSpace),status])
         let right = evidenceTable.enclosingScrollView?.contentView.frame.width ?? 600, rightSpace = evidenceTable.intercellSpacing.width*4+2
-        fit(evidenceTable,widths:[50,max(90,right-50-96-50-rightSpace),96,50]); selectionHeader.needsLayout = true
+        fit(evidenceTable,widths:[50,max(90,right-50-74-35-rightSpace),74,35]); selectionHeader.needsLayout = true
+    }
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        max(proposed, splitView.bounds.width * 0.55)
+    }
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposed: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        min(proposed, splitView.bounds.width - 395 - splitView.dividerThickness)
     }
     func splitViewDidResizeSubviews(_ notification: Notification) { fitTableColumns() }
-    func windowDidResize(_ notification: Notification) { fitTableColumns() }
+    func windowDidResize(_ notification: Notification) {
+        if splitPositioned {
+            let width = split.bounds.width
+            let maxPosition = width - 395 - split.dividerThickness
+            let position = split.arrangedSubviews.first?.frame.width ?? width * 0.64
+            if maxPosition > 0, position < width * 0.55 || position > maxPosition {
+                split.setPosition(min(maxPosition, max(width * 0.55, position)), ofDividerAt: 0)
+            }
+        }
+        fitTableColumns()
+    }
     func windowDidBecomeKey(_ notification: Notification) {
         guard !isApplying else { return }; let updated = NamingPreferences.styles(); guard updated != namingStyles else { return }
         let selected = namingStyles.indices.contains(uniformStyle.indexOfSelectedItem) ? namingStyles[uniformStyle.indexOfSelectedItem].id : NamingPreferences.automatic
@@ -224,13 +459,13 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         table.reloadData(); loadDetails()
     }
     @objc func chooseFolder() {
-        guard !isApplying else { return }; let panel = NSOpenPanel(); panel.title = "选择待整理的图书文件夹"; panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
+        guard !isApplying, !bookmarkFlowActive else { return }; let panel = NSOpenPanel(); panel.title = "选择待整理的图书文件夹"; panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
         panel.begin { [weak self] response in if response == .OK,let folder = panel.url { self?.loadFolder(folder) } }
     }
     @objc func rescanFolder() { if let folder,!isApplying { loadFolder(folder) } }
     func loadFolder(_ url: URL) {
-        guard !isApplying else { return }; stopAnalysis(); folder = url; folderLabel.stringValue = url.path; folderLabel.toolTip = url.path
-        items = []; selectedIndex = nil; planIssues = [:]; table.reloadData(); loadDetails()
+        guard !isApplying, !bookmarkFlowActive else { return }; stopAnalysis(); folder = url; folderLabel.stringValue = url.path; folderLabel.toolTip = url.path
+        items = []; selectedIndex = nil; planIssues = [:]; lastPages = [:]; table.reloadData(); loadDetails()
         let token = UUID(), deep = recursive.state == .on; generation = token; isAnalysing = true; updateControls(); note.stringValue = "正在扫描文件夹…"
         let operation = BlockOperation(); operation.addExecutionBlock { [weak self,weak operation] in
             let result = Result { try BatchNaming.discover(url,recursive:deep,cancelled:{operation?.isCancelled != false}) }
@@ -244,7 +479,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         }; queue.addOperation(operation)
     }
     @objc func analysePending() {
-        guard !isApplying,!isAnalysing else { return }
+        guard !isApplying,!isAnalysing,!bookmarkFlowActive else { return }
         let pending = items.indices.filter { items[$0].proposal == nil && items[$0].outcome == nil }
         guard !pending.isEmpty else { note.stringValue = "所有项目均已分析；如需重新读取，请重新扫描文件夹。"; return }
         let inputs = pending.map { ($0,items[$0].url) }, token = UUID(), ocr = useOCR.state == .on, options = recognitionControls.options
@@ -281,30 +516,82 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         } else {
             let item = items[row]
             switch column?.identifier.rawValue {
-            case "include": let check = NSButton(checkboxWithTitle:"",target:self,action:#selector(includeChanged(_:))); check.tag = row; check.state = item.included ? .on : .off; check.isEnabled = !isApplying && item.proposal != nil && item.outcome == nil; return check
-            case "file": field.stringValue = item.url.lastPathComponent; field.toolTip = item.url.path
-            case "name": field.stringValue = item.proposal == nil ? "" : item.displayName
+            case "include":
+                let check = BatchRowCheckbox(checkboxWithTitle: "", target: self, action: #selector(includeChanged(_:)))
+                check.tag = row
+                check.state = item.included ? .on : .off
+                check.isEnabled = !isApplying && item.proposal != nil && item.outcome == nil
+                check.setAccessibilityLabel("纳入改名批次：" + item.url.lastPathComponent)
+                return check
+            case "file", "name":
+                let isOriginal = column?.identifier.rawValue == "file"
+                field.stringValue = isOriginal ? item.url.lastPathComponent : item.proposal == nil ? "" : item.displayName
+                field.cell?.usesSingleLineMode = false
+                field.maximumNumberOfLines = 2
+                field.lineBreakMode = .byTruncatingTail
+                field.toolTip = isOriginal ? item.url.path : field.stringValue
             default: field.stringValue = planIssues[row] ?? item.status; if planIssues[row] != nil || item.error != nil { field.textColor = .systemRed } else if !item.reviewReasons.isEmpty && !item.reviewed { field.textColor = .systemOrange }
             }
         }
         if field.toolTip == nil { field.toolTip = field.stringValue }; return field
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
+        if notification.object as? NSTableView === evidenceTable {
+            let row = evidenceTable.selectedRow
+            if currentEvidence.indices.contains(row), let page = currentEvidence[row].page, page > 0 { bookPreview.showPage(page - 1) }
+            return
+        }
         guard notification.object as? NSTableView === table else { return }
         let next = items.indices.contains(table.selectedRow) ? table.selectedRow : nil
         guard selectedIndex != next else { return }
-        window.makeFirstResponder(table); selectedIndex = next; loadDetails()
+        if let url = bookPreview.url { lastPages[url] = bookPreview.page }
+        window.makeFirstResponder(table)
+        selectedIndex = next
+        sources.selectItem(at: 0)
+        sourceField = nil
+        detailScroll.contentView.scroll(to: .zero)
+        loadDetails()
     }
     private func loadDetails() {
         let item = selectedIndex.flatMap { items.indices.contains($0) ? items[$0] : nil }, proposal = item?.proposal
-        bookPreview.load(item?.url)
+        bookPreview.load(item?.url, page: item.flatMap { lastPages[$0.url] } ?? 0)
+        originalName.stringValue = item?.url.lastPathComponent ?? ""
+        originalName.toolTip = item?.url.path
+        let isFolder = item?.url.hasDirectoryPath == true || (try? item?.url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        let ext = item?.url.pathExtension ?? ""
+        nameExtension.stringValue = isFolder || ext.isEmpty ? "" : "." + ext
+        supplementButton.isEnabled = item != nil && !isAnalysing && !isApplying && !bookmarkFlowActive
         for (index,key) in fieldKeys.enumerated() { fields[index].stringValue = proposal?.metadata[key] ?? ""; fields[index].isEnabled = proposal != nil && item?.outcome == nil && !isApplying; fieldStates[index].stringValue = proposal?.fieldStatus(key) ?? "" }
-        currentEvidence = (proposal?.evidence ?? []).enumerated().sorted { a,b in let x = BookMetadata.fields.firstIndex(of:a.element.field) ?? 99,y = BookMetadata.fields.firstIndex(of:b.element.field) ?? 99; return x != y ? x<y : a.offset<b.offset }.map(\.element); evidenceTable.reloadData()
+        updateEvidence(proposal)
         formatHint.stringValue = proposal.map { "命名格式："+NamingPreferences.pattern(item?.styleID ?? NamingPreferences.automatic,metadata:$0.metadata) } ?? ""
-        finalName.stringValue = item?.stem ?? ""; finalName.isEnabled = proposal != nil && item?.outcome == nil && !isApplying
+        finalName.stringValue = item?.stem ?? ""; finalName.toolTip = item?.displayName; finalName.isEnabled = proposal != nil && item?.outcome == nil && !isApplying
         reviewed.state = item?.reviewed == true ? .on : .off; reviewed.isEnabled = proposal != nil && item?.outcome == nil && !isApplying
         updateDetailNote(item)
     }
+
+    private func updateEvidence(_ proposal: NamingProposal?) {
+        currentEvidence = (proposal?.evidence ?? []).filter { sourceField == nil || $0.field == sourceField }
+        currentEvidence = currentEvidence.enumerated().sorted {
+            let first = BookMetadata.fields.firstIndex(of: $0.element.field) ?? BookMetadata.fields.count
+            let second = BookMetadata.fields.firstIndex(of: $1.element.field) ?? BookMetadata.fields.count
+            return first == second ? $0.offset < $1.offset : first < second
+        }.map(\.element)
+        evidenceTable.reloadData()
+    }
+
+    @objc private func sourceFilterChanged() {
+        let index = sources.indexOfSelectedItem - 1
+        sourceField = fieldKeys.indices.contains(index) ? fieldKeys[index] : nil
+        updateEvidence(selectedIndex.flatMap { items[$0].proposal })
+    }
+
+    func controlTextDidBeginEditing(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField,
+              let key = field.identifier?.rawValue, let index = fieldKeys.firstIndex(of: key) else { return }
+        sources.selectItem(at: index + 1)
+        sourceFilterChanged()
+    }
+
     private func updateDetailNote(_ item: BatchNamingItem?) {
         let text: String
         if let item, item.proposal != nil {
@@ -317,19 +604,41 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     private func reloadRows(_ rows: IndexSet, columns: IndexSet = IndexSet(integersIn:0..<4)) {
         table.reloadData(forRowIndexes:rows,columnIndexes:columns)
     }
-    @objc func includeChanged(_ sender: NSButton) { guard !isApplying,items.indices.contains(sender.tag) else { return }; items[sender.tag].included = sender.state == .on; planIssues = [:]; table.reloadData(); updateControls() }
-    @objc func toggleAll() {
-        guard !isApplying,!isAnalysing else { return }
-        let eligible = items.filter {$0.proposal != nil && $0.outcome == nil}
-        let include = !eligible.isEmpty && !eligible.allSatisfy(\.included)
-        for item in items { item.included = include && item.proposal != nil && item.outcome == nil }
-        planIssues = [:]; table.reloadData(); updateControls()
+    @objc func includeChanged(_ sender: NSButton) {
+        guard sender.tag >= 0 else { return }
+        setIncluded(IndexSet(integer: sender.tag), to: sender.state == .on)
     }
-    @objc func reviewChanged() { guard let index = selectedIndex,!isApplying,items[index].outcome == nil else { return }; items[index].reviewed = reviewed.state == .on; table.reloadData(); updateControls() }
+
+    private func setIncluded(_ rows: IndexSet, to included: Bool?) {
+        guard !isApplying else { return }
+        for row in rows where items.indices.contains(row) && items[row].proposal != nil && items[row].outcome == nil {
+            let item = items[row]
+            item.included = included ?? !item.included
+        }
+        planIssues = [:]
+        table.reloadData()
+        updateControls()
+    }
+
+    @objc func toggleAll() {
+        guard !isApplying, !isAnalysing else { return }
+        let eligible = items.indices.filter { items[$0].proposal != nil && items[$0].outcome == nil }
+        setIncluded(IndexSet(eligible), to: !eligible.allSatisfy { items[$0].included })
+    }
+
+    @objc func reviewChanged() {
+        guard let index = selectedIndex, !isApplying, items[index].proposal != nil, items[index].outcome == nil else { return }
+        let item = items[index]
+        item.reviewed = reviewed.state == .on
+        item.included = item.reviewed
+        planIssues = [:]
+        table.reloadData()
+        updateControls()
+    }
     @objc func uniformStyleChanged() {
         guard !isApplying,namingStyles.indices.contains(uniformStyle.indexOfSelectedItem) else { return }
         let id = namingStyles[uniformStyle.indexOfSelectedItem].id; AppSettings().set(id,"namingStyle")
-        for item in items where item.outcome == nil { item.styleID = id; item.customName = nil }
+        for item in items where item.outcome == nil { item.styleID = id }
         planIssues = [:]; table.reloadData(); loadDetails()
     }
     @objc func manageTemplates() {
@@ -347,10 +656,13 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     func controlTextDidChange(_ notification: Notification) {
         guard let index = selectedIndex,let field = notification.object as? NSTextField,items[index].proposal != nil,items[index].outcome == nil,!isApplying else { return }
         let item = items[index]
-        if field === finalName { item.customName = field.stringValue }
-        else if let key = field.identifier?.rawValue,let fieldIndex = fieldKeys.firstIndex(of:key) {
+        if field === finalName {
+            item.customName = field.stringValue.isEmpty ? nil : field.stringValue
+        } else if let key = field.identifier?.rawValue, let fieldIndex = fieldKeys.firstIndex(of: key) {
+            item.reviewed = true
+            item.included = true
+            reviewed.state = .on
             item.proposal!.metadata[key] = key == "出版日期" ? BookMetadata.date(field.stringValue) : field.stringValue
-            item.customName = nil; item.reviewed = true; reviewed.state = .on
             let hint = "命名格式："+NamingPreferences.pattern(item.styleID,metadata:item.proposal!.metadata)
             if formatHint.stringValue != hint { formatHint.stringValue = hint }
             let stem = item.stem
@@ -362,17 +674,118 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         var rows = IndexSet(planIssues.keys)
         rows.insert(index)
         planIssues.removeAll()
-        reloadRows(rows,columns:IndexSet(integersIn:2..<4))
+        reloadRows(rows,columns:IndexSet([0, 2, 3]))
+        updateControls()
     }
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard notification.object as? NSTextField === finalName, let index = selectedIndex,
+              items.indices.contains(index) else { return }
+        finalName.stringValue = items[index].stem
+        finalName.toolTip = items[index].displayName
+    }
+
     @objc func adoptEvidence() {
         guard let index = selectedIndex,!isApplying,items[index].outcome == nil,currentEvidence.indices.contains(evidenceTable.selectedRow) else { return }
-        let value = currentEvidence[evidenceTable.selectedRow]; items[index].proposal?.metadata[value.field] = value.value; items[index].customName = nil; items[index].reviewed = true; planIssues = [:]; table.reloadData(); loadDetails()
+        let value = currentEvidence[evidenceTable.selectedRow]; items[index].proposal?.metadata[value.field] = value.value; items[index].reviewed = true; items[index].included = true; planIssues = [:]; table.reloadData(); loadDetails(); updateControls()
     }
     @objc func showSources() {
         guard let index = selectedIndex,let proposal = items[index].proposal,!proposal.pages.isEmpty,!window.hasDocumentDialog else { return }
         let controller = NamingSourceWindow(url:items[index].url,proposal:proposal); sourceWindow = controller
         controller.onClosed = { [weak self] in self?.sourceWindow = nil }; controller.show(on:window)
     }
+    @objc func supplementBookmarks() {
+        guard !isApplying, !isAnalysing, !bookmarkFlowActive, !window.hasDocumentDialog,
+              let index = selectedIndex, items.indices.contains(index) else { return }
+        let item = items[index]
+        let url = item.url
+        if let problem = blockedReason?(url) { note.stringValue = problem; return }
+        let selectedSSID = item.proposal?.metadata["SS号"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let expected = item.outcome == nil ? item.proposal?.fingerprint : nil
+        let currentPage = bookPreview.page
+        loadingBookmarks = true
+        note.stringValue = "正在打开书签查询…"
+        updateControls()
+        queue.addOperation { [weak self] in
+            let result = Result { () throws -> (BookArchive, String) in
+                let fingerprint = try BatchNaming.fingerprint(url)
+                guard expected == nil || expected == fingerprint else {
+                    throw ReaderFailure("图书已发生变化，请重新扫描后再补书签。")
+                }
+                let book = try BookArchive(url: url)
+                guard !book.isPDZ else { throw ReaderFailure("这种格式只支持读取目录。") }
+                guard try BatchNaming.fingerprint(url) == fingerprint else { throw ReaderFailure("图书已发生变化，请重试。") }
+                return (book, fingerprint)
+            }
+            DispatchQueue.main.async {
+                guard let self, !self.closed else { return }
+                self.loadingBookmarks = false
+                switch result {
+                case .failure(let error):
+                    self.note.stringValue = error.localizedDescription
+                case .success(let (book, fingerprint)):
+                    self.note.stringValue = "正在核对「" + url.lastPathComponent + "」的书签"
+                    let controller = OnlineReferences(ssid: selectedSSID.isEmpty ? FilenameDraft(book: book).ss : selectedSSID,
+                                                      mode: .bookmarks)
+                    self.referenceWindow = controller
+                    controller.window.title = "补书签 — " + url.lastPathComponent
+                    controller.onClosed = { [weak self] in
+                        self?.referenceWindow = nil
+                        self?.updateControls()
+                    }
+                    controller.onDirectory = { [weak self, weak controller] text in
+                        guard let self, let controller else { return false }
+                        let editor = BookEditor(book: book, allowPageRepair: false)
+                        editor.currentPage = currentPage
+                        guard editor.insertReferenceContents(text) else { return false }
+                        self.bookmarkEditor = editor
+                        editor.beforeSave = {
+                            guard try BatchNaming.fingerprint(url) == fingerprint else {
+                                throw ReaderFailure("图书已发生变化，请重新打开目录编辑。")
+                            }
+                        }
+                        editor.onClosed = { [weak self] in
+                            self?.bookmarkEditor = nil
+                            self?.updateControls()
+                        }
+                        editor.onSaved = { [weak self] _ in self?.bookmarksSaved(for: item) }
+                        controller.close()
+                        NativeDialog.present(editor.window, on: self.window)
+                        return true
+                    }
+                    controller.show(on: self.window)
+                }
+                self.updateControls()
+            }
+        }
+    }
+
+    private func bookmarksSaved(for item: BatchNamingItem) {
+        loadingBookmarks = true
+        updateControls()
+        let url = item.url
+        queue.addOperation { [weak self] in
+            let result = Result { try BatchNaming.fingerprint(url) }
+            DispatchQueue.main.async {
+                guard let self, !self.closed else { return }
+                self.loadingBookmarks = false
+                switch result {
+                case .success(let fingerprint):
+                    item.proposal?.fingerprint = fingerprint
+                    self.note.stringValue = "书签已保存 · " + url.lastPathComponent
+                    if self.bookPreview.url == url {
+                        self.bookPreview.load(url, page: self.bookPreview.page, refresh: true)
+                    }
+                    self.onRenamed?(url, url)
+                case .failure(let error):
+                    self.note.stringValue = "书签已保存，请重新扫描后再改名。" + error.localizedDescription
+                    item.included = false
+                }
+                self.table.reloadData()
+                self.updateControls()
+            }
+        }
+    }
+
     private func requests() -> [(Int,BatchNameRequest)] {
         items.indices.filter { items[$0].included && items[$0].proposal != nil && items[$0].outcome == nil }.map { index in
             let item = items[index], p = item.proposal!
@@ -393,7 +806,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         table.reloadData(); updateControls(); return !input.isEmpty && planIssues.isEmpty
     }
     @objc func applySelected() {
-        guard !isApplying,!isAnalysing else { return }
+        guard !isApplying,!isAnalysing,!bookmarkFlowActive else { return }
         if window.hasDocumentDialog { window.bringDocumentDialogForward(); return }
         guard checkNames() else { return }
         let input = requests(), token = UUID(), backup = false, dates = preserveDates.state == .on
@@ -420,13 +833,17 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     }
     @objc private func ocrOptionChanged() { updateControls() }
     private func updateControls() {
-        applyButton.isEnabled = !isAnalysing && !isApplying && items.contains { $0.included && $0.proposal != nil && $0.outcome == nil }
+        let count = items.filter { $0.included && $0.proposal != nil && $0.outcome == nil }.count
+        inclusionSummary.stringValue = "共 \(items.count) 本 · 已勾选 \(count) 本"
+        applyButton.title = count == 0 ? "保存并改名" : "保存并改名 \(count) 本"
+        applyButton.isEnabled = !isAnalysing && !isApplying && !bookmarkFlowActive && count > 0
+        supplementButton.isEnabled = selectedIndex != nil && !isAnalysing && !isApplying && !bookmarkFlowActive
         scanButton.isEnabled = !isAnalysing && !isApplying && !items.isEmpty; stopButton.isEnabled = isAnalysing || isApplying
         recognitionControls.language.isEnabled = !isAnalysing && !isApplying; recognitionControls.layout.isEnabled = !isAnalysing && !isApplying
         uniformStyle.isEnabled = !isApplying; useOCR.isEnabled = !isAnalysing && !isApplying; recursive.isEnabled = !isAnalysing && !isApplying
         forcePDFOCR.isEnabled = useOCR.isEnabled && useOCR.state == .on
         preserveDates.isEnabled = !isApplying
-        let eligible = items.filter {$0.proposal != nil && $0.outcome == nil}, count = eligible.filter(\.included).count
+        let eligible = items.filter {$0.proposal != nil && $0.outcome == nil}
         selectionHeader.check.state = count == 0 ? .off : count == eligible.count ? .on : .mixed
         selectionHeader.check.isEnabled = !isApplying && !isAnalysing && !eligible.isEmpty
     }
@@ -435,6 +852,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         panel.begin { [weak self] response in guard response == .OK,let self,let url = panel.url else { return }; do { try BatchNaming.csv(self.items).write(to:url,atomically:true,encoding:.utf8) } catch { self.note.stringValue = error.localizedDescription } }
     }
     @objc func closeWindow() {
+        if bookmarkFlowActive { window.bringDocumentDialogForward(); return }
         if isApplying { stop(); return }; closed = true; stopAnalysis(); bookPreview.load(nil); sourceWindow?.closeWindow(); templateWindow?.close(); window.orderOut(nil); onClosed?()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { closeWindow(); return false }
