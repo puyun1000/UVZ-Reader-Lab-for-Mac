@@ -805,13 +805,14 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     }
     private func selectNavigation() {
         func flattened(_ nodes: [NavigationNode]) -> [NavigationNode] { nodes.flatMap { [$0] + flattened($0.children) } }
-        var candidate: NavigationNode?
-        if let book, book.chapters.isEmpty, !includePageNumbers {
-            let group = book.pages[state.page].key.group
-            candidate = nodes.first { $0.page.map { book.pages[$0].key.group == group } ?? false }
-        } else {
-            candidate = flattened(nodes).filter { ($0.page ?? Int.max) <= state.page }.max { ($0.page ?? -1) < ($1.page ?? -1) }
+        let group: Int? = book.flatMap { book in
+            book.usesPDGNumbering && !includePageNumbers && book.pages.indices.contains(state.page)
+                ? book.pages[state.page].key.group : nil
         }
+        var candidate = flattened(nodes).filter { node in
+            guard let page = node.page, page <= state.page else { return false }
+            return group == nil || node.pageGroup == group
+        }.max { ($0.page ?? -1) < ($1.page ?? -1) }
         while let current = candidate, outline.row(forItem: current) < 0 { candidate = current.parent }
         selecting = true
         if let candidate { let row = outline.row(forItem: candidate); if row >= 0 { outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false); outline.scrollRowToVisible(row) } }

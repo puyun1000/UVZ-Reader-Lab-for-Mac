@@ -10,7 +10,7 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
     init(folder:URL,output:URL){self.folder=folder;self.output=output;super.init();savedSidebar=defaults.object(forKey:"reading.sidebarWidth")}
     func applicationDidFinishLaunching(_ notification:Notification) {
         guard folder.lastPathComponent.hasPrefix("uvz-workflow017-") else {finish("需要临时测试书籍目录。");return}
-        reader=ReaderController();reader.smokeMode=true
+        reader=ReaderController();reader.smokeMode=true;reader.includePageNumbers=false
         do {let book=try FileManager.default.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil).first {$0.pathExtension=="uvz"}!;reader.open(book)}catch {finish(error.localizedDescription);return}
         tick()
     }
@@ -34,6 +34,15 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 reader.toggleSidebar();try check(reader.readingSplit.arrangedSubviews[0].isHidden,"可以隐藏目录栏")
                 reader.toggleSidebar();reader.window.contentView?.layoutSubtreeIfNeeded()
                 try check(abs(reader.readingSplit.arrangedSubviews[0].frame.width-430)<3,"重新显示目录保留调整后的宽度")
+                let visible = (0..<reader.outline.numberOfRows).compactMap { reader.outline.item(atRow: $0) as? NavigationNode }
+                try check(visible.map(\.title) == ["封面", "自定前言", "原目录", "封底"],
+                          "阅读侧栏显示实际前言书签和独立封底，默认前言不重复")
+                guard let backCover = visible.last else { throw ReaderFailure("封底入口缺失") }
+                reader.outline.selectRowIndexes(IndexSet(integer: reader.outline.row(forItem: backCover)), byExtendingSelection: false)
+                try check(reader.state.page == book.pages.count - 1, "点选封底跳到实际封底页")
+                reader.jump(1)
+                try check(reader.outline.selectedRow == -1, "阅读书签尚未覆盖的同类型起始页时不误选封面")
+                reader.jump(0)
                 let controller=BookEditor(book:book);editor=controller;controller.show(on:reader.window)
                 controller.textView.string=String(repeating:"长目录文字",count:80)+"\t3\n无页码分组";controller.textView.refreshExtent();stage=1
             case 1:
@@ -44,14 +53,15 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 try check(editor.pagePreview.page == 0, "目录预览从阅读位置打开")
                 editor.window.makeFirstResponder(text)
                 text.setSelectedRange(NSRange(location: 2, length: 0))
-                try check(editor.pagePreview.page == 3, "文本光标所在条目联动目标物理页")
+                let previewTarget = reader.book?.pages.firstIndex { $0.key.group == 5 && $0.number == 3 }
+                try check(previewTarget != nil && editor.pagePreview.page == previewTarget, "文本光标所在条目联动目标物理页")
                 editor.showStructureTab()
                 editor.contentsTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-                try check(editor.pagePreview.page == 3, "树形模式选中条目保留同页预览")
+                try check(editor.pagePreview.page == previewTarget, "树形模式选中条目保留同页预览")
                 editor.togglePagePreview()
                 try check(editor.pagePreview.isHidden, "可折叠预览并为目录释放空间")
                 editor.togglePagePreview()
-                try check(!editor.pagePreview.isHidden && editor.pagePreview.page == 3, "重新显示预览保留目标页")
+                try check(!editor.pagePreview.isHidden && editor.pagePreview.page == previewTarget, "重新显示预览保留目标页")
                 editor.showContentsTab()
                 manager.ensureLayout(for:container)
                 let position=(text.string as NSString).range(of:"\t3").location+1
@@ -85,7 +95,7 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 let reopened=try BookArchive(url:item.url)
                 try check(item.url.deletingPathExtension().lastPathComponent=="批量保存与改名","批量界面写回规范名称")
                 try check(reopened.metadata == item.proposal!.metadata,"批量界面将全部核对信息写回书籍")
-                try check(reopened.chapters.map(\.title)==["原目录"],"批量信息修改保留原目录")
+                try check(reopened.chapters.map(\.title)==["自定前言","原目录"],"批量信息修改保留原目录")
                 batch.window.close();finish();return
             }
             tick()

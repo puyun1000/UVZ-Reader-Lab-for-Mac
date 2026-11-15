@@ -51,36 +51,69 @@ struct ReadingState: Codable {
 final class NavigationNode: NSObject {
     let title: String
     let page: Int?
+    let pageGroup: Int?
     var children: [NavigationNode] = []
     weak var parent: NavigationNode?
-    init(_ title: String, page: Int? = nil) { self.title = title; self.page = page }
+    init(_ title: String, page: Int? = nil, pageGroup: Int? = nil) {
+        self.title = title
+        self.page = page
+        self.pageGroup = pageGroup
+    }
     func append(_ child: NavigationNode) { child.parent = self; children.append(child) }
+
+    var orderingGroup: Int? {
+        pageGroup ?? children.lazy.compactMap { $0.orderingGroup }.first
+    }
 }
 
 func navigationNodes(for book: BookArchive, includePages: Bool) -> [NavigationNode] {
-    var roots: [NavigationNode] = []
-    for (group, title) in ["封面", "书名", "版权", "前言", "目录"].enumerated() {
-        if let page = book.pages.firstIndex(where: { $0.key.group == group }) {
-            roots.append(NavigationNode(title, page: page))
+    var authored: [NavigationNode] = [], coveredGroups = Set<Int>()
+    var levels: [(Int, NavigationNode)] = []
+    var paths: [String: NavigationNode] = [:]
+    for chapter in book.chapters {
+        let page = book.pages.indices.contains(chapter.pageIndex) ? chapter.pageIndex : nil
+        let group = page.map { book.pages[$0].key.group } ?? chapter.unresolvedDAT.map { $0.type - 1 }
+        if let group { coveredGroups.insert(group) }
+        let title = chapter.title + (chapter.unresolvedDAT == nil ? "" : " · 未定位")
+        let node = NavigationNode(title, page: page, pageGroup: group)
+        var parent: NavigationNode?
+        if let path = chapter.path, path.count > 2 {
+            for length in stride(from: path.count - 2, through: 2, by: -2) {
+                if let found = paths[String(path.prefix(length))] { parent = found; break }
+            }
         }
+        while let last = levels.last, last.0 >= chapter.level { levels.removeLast() }
+        if parent == nil, chapter.level > 0 { parent = levels.last?.1 }
+        if let parent { parent.append(node) } else { authored.append(node) }
+        if let path = chapter.path { paths[path] = node }
+        levels.append((chapter.level, node))
     }
-    if !book.chapters.isEmpty {
-        var levels: [(Int, NavigationNode)] = []
-        var paths: [String: NavigationNode] = [:]
-        for chapter in book.chapters {
-            let node = NavigationNode(chapter.title + (chapter.unresolvedDAT == nil ? "" : " · 未定位"), page: chapter.pageIndex < 0 ? nil : chapter.pageIndex)
-            var parent: NavigationNode?
-            if let path = chapter.path, path.count > 2 {
-                for length in stride(from: path.count - 2, through: 2, by: -2) {
-                    if let found = paths[String(path.prefix(length))] { parent = found; break }
+
+    var roots = authored
+    if book.usesPDGNumbering {
+        var firstPages: [Int: Int] = [:]
+        for (index, page) in book.pages.enumerated() where firstPages[page.key.group] == nil {
+            firstPages[page.key.group] = index
+        }
+        let fallbacks = PageAddressing.titles.prefix(PageAddressing.prefixes.count).enumerated().compactMap { entry -> NavigationNode? in
+            let (group, title) = entry
+            guard !coveredGroups.contains(group), let page = firstPages[group] else { return nil }
+            return NavigationNode(title, page: page, pageGroup: group)
+        }
+
+        // Insert by page type without moving or splitting any authored subtree.
+        roots = []
+        var pending = fallbacks[...]
+        for node in authored {
+            if let group = node.orderingGroup {
+                while let fallback = pending.first, let fallbackGroup = fallback.pageGroup, fallbackGroup < group {
+                    roots.append(fallback)
+                    pending = pending.dropFirst()
                 }
             }
-            while let last = levels.last, last.0 >= chapter.level { levels.removeLast() }
-            if parent == nil, chapter.level > 0 { parent = levels.last?.1 }
-            if let parent { parent.append(node) } else { roots.append(node) }
-            if let path = chapter.path { paths[path] = node }
-            levels.append((chapter.level, node))
+            roots.append(node)
         }
+        roots.append(contentsOf: pending)
     }
     if includePages {
         let all = NavigationNode("页码")

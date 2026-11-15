@@ -36,6 +36,41 @@ def main():
         report = run('--inspect', book)
         assert report['fallbackNavigation'] == ['封面','书名','版权','前言','目录','第一章']
         checks.append('有正文电子目录时仍列出五类实际前置入口')
+        complete = folder/'目录类型.uvz'
+        page_names = ['cov001','bok001','leg001','fow001','fow002','!00001','000001','att001','bac001']
+        with zipfile.ZipFile(complete, 'w') as z:
+            for name in page_names:
+                z.writestr(name+'.pdg', png.getvalue())
+        original = complete.read_bytes()
+        assert run('--inspect', complete)['fallbackNavigation'] == ['封面','书名','版权','前言','目录','正文','附录','封底']
+        assert complete.read_bytes() == original
+        checks.append('无电子目录时按页序给实际存在的八种类型各补一个入口')
+        plan = folder/'sections.json'
+        chapters = [
+            dict(title='导读分组', page=0, level=0),
+            dict(title='编校说明', page=5, level=1),
+            dict(title='目录总目', page=6, level=0),
+            dict(title='第一篇', page=7, level=0),
+            dict(title='补遗', page=8, level=0),
+            dict(title='书末', page=9, level=0),
+        ]
+        plan.write_text(json.dumps(dict(chapters=chapters, metadata={}), ensure_ascii=False))
+        run('--apply-draft', complete, plan, '--contents-only')
+        report_sections = run('--inspect', complete)
+        assert report_sections['chapters'] == chapters
+        assert report_sections['fallbackNavigation'] == ['封面','书名','版权','导读分组','目录总目','第一篇','补遗','书末']
+        checks.append('按真实目标类型去重，前言子项保留层级，目录、正文、附录和封底均采用实际书签')
+
+        partial = folder/'缺页书签.uvz'
+        with zipfile.ZipFile(partial, 'w') as z:
+            for name in ['fow002','000001','bac001']:
+                z.writestr(name+'.pdg', png.getvalue())
+            z.writestr('Bookcontents.dat', '原序|01|1|0|4\n正文标题|02|1|0|6')
+        partial_report = run('--inspect', partial)
+        assert partial_report['fallbackNavigation'] == ['原序 · 未定位','正文标题','封底']
+        assert partial_report['unresolvedTargets'] == ['fow1', None]
+        checks.append('旧书签目标暂未定位仍按原类型识别，其他类型继续补缺')
+
         change = folder/'change.json'
         metadata = dict(report['metadata'], ISBN='9780306406157',作者='测试作者',出版日期='2026.03',丛书名='研究丛书')
         change.write_text(json.dumps(dict(stem='新书名',metadata=metadata),ensure_ascii=False))

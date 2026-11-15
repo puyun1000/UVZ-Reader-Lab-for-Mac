@@ -37,7 +37,7 @@ def main():
   run('--apply-draft',book,draft)
   reread=run('--inspect',book)
   assert reread['chapters']==parsed['chapters']
-  assert reread['fallbackNavigation'][:5]==['封面','书名','版权','前言','目录'] and reread['fallbackNavigation'][5]=='第一部'
+  assert reread['fallbackNavigation']==['第一部','封面','书名','版权','前言','目录','附录','封底']
   checks.append('含无跳转父节点的多级目录写入 DAT 并重读')
   text.write_text('物理跳转\t@8')
   assert run('--parse-contents-text',book,text)['chapters'][0]['page']==8

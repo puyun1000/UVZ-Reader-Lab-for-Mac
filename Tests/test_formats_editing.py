@@ -182,7 +182,7 @@ def main():
         empty = []
         run('--apply-draft', renamed, draft(edit, empty, metadata))
         result = run('--inspect', renamed)
-        assert not result['chapters'] and result['fallbackNavigation'] == ['封面']
+        assert not result['chapters'] and result['fallbackNavigation'] == ['封面','正文']
         checks.append('删除全部目录后回退基础信息，不自动列正文页码')
     print(json.dumps({'passed': len(checks), 'checks': checks}, ensure_ascii=False, indent=2))
 
