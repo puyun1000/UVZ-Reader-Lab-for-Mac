@@ -84,11 +84,23 @@ struct BookPage {
     }
 }
 
+struct DATPageTarget: Hashable {
+    let type: Int
+    let number: Int
+
+    var token: String {
+        let prefixes = ["cov", "bok", "leg", "fow", "!", "", "att", "bac"]
+        return (type == 1 && number >= 2 ? "封面" : prefixes[type - 1]) + String(number)
+    }
+}
+
 struct BookChapter {
     let title: String
     let pageIndex: Int
     let level: Int
     let path: String?
+    var unresolvedDAT: DATPageTarget? = nil
+    var pdfOutlineIndex: Int? = nil
 }
 
 final class BookArchive {
@@ -99,6 +111,7 @@ final class BookArchive {
     let hasElectronicContents: Bool
     let chapters: [BookChapter]
     let contentsNotice: String?
+    let hasUnreadableContents: Bool
     private let bytes: Data
     let isPDZ:Bool
     private let entries: [ArchiveEntry]
@@ -117,7 +130,7 @@ final class BookArchive {
             let source = try LooseBook(url: url)
             loose = source; bytes = Data(); entries = [];isPDZ=false
             pages = source.pages; title = source.title; metadata = source.metadata
-            chapters = source.chapters; hasElectronicContents = source.hasContents; contentsNotice = source.notice
+            chapters = source.chapters; hasElectronicContents = source.hasContents; contentsNotice = source.notice; hasUnreadableContents = source.hasUnreadableContents
             return
         }
         let original = try Data(contentsOf: url, options: .mappedIfSafe)
@@ -185,17 +198,19 @@ final class BookArchive {
             ($0.name as NSString).lastPathComponent.lowercased() == "bookcontents.dat" &&
             ($0.name as NSString).deletingLastPathComponent == folder
         }
-        var chapters: [BookChapter] = [], notice: String?
+        var chapters: [BookChapter] = [], notice: String?, unreadable = false
         if let contentsEntry {
             do {
                 guard contentsEntry.size <= 2 * 1024 * 1024 else { throw ReaderFailure("电子目录文件过大。") }
                 let parsed = try Self.parseContents(Self.read(contentsEntry, from: bytes), pages: pages)
                 chapters = parsed.0
                 notice = parsed.1
-            } catch { notice = "电子目录未能读取：" + error.localizedDescription }
+                unreadable = parsed.2
+            } catch { notice = "电子目录未能读取：" + error.localizedDescription; unreadable = true }
         }
         self.chapters = chapters
         self.contentsNotice = notice
+        self.hasUnreadableContents = unreadable
         self.bytes = bytes
         sourceDigest = Data(SHA256.hash(data: original))
         self.entries = entries
@@ -299,32 +314,43 @@ final class BookArchive {
         return String(data: bytes, encoding: String.Encoding(rawValue: encoding))
     }
 
-    static func parseContents(_ raw: Data, pages: [BookPage]) throws -> ([BookChapter], String?) {
+    static func parseContents(_ raw: Data, pages: [BookPage], retainUnmatched: Bool = true) throws -> ([BookChapter], String?, Bool) {
         let text = try contentsText(raw)
-        var result: [BookChapter] = [], ignored = 0
-        for line in text.components(separatedBy: .newlines) where !line.isEmpty {
+        var pageIndices: [DATPageTarget: [Int]] = [:]
+        for (index, page) in pages.enumerated() {
+            let target = DATPageTarget(type: page.key.group + 1, number: page.number)
+            pageIndices[target, default: []].append(index)
+        }
+        var result: [BookChapter] = [], ignored = 0, unresolved = 0
+        for line in text.components(separatedBy: .newlines) where !line.trimmingCharacters(in: .whitespaces).isEmpty {
             let fields = line.components(separatedBy: "|")
             guard fields.count >= 5,
                   let number = Int(fields[2].trimmingCharacters(in: .whitespaces)),
                   let type = Int(fields[4].trimmingCharacters(in: .whitespaces)),
-                  (0...8).contains(type) else {
+                  ((1...8).contains(type) && number >= 0) || (type == 0 && number == 0) else {
                 ignored += 1
                 continue
             }
-            let index: Int
-            if type == 0 && number == 0 { index = -1 }
-            else if let found = pages.firstIndex(where: { $0.key.group == type - 1 && $0.number == number }) { index = found }
-            else { ignored += 1; continue }
             let title = fields[0].trimmingCharacters(in: .whitespaces)
             guard !title.isEmpty else { ignored += 1; continue }
+            let target = DATPageTarget(type: type, number: number)
+            let matches = pageIndices[target] ?? []
+            let missing = type > 0 && matches.count != 1
+            if missing && !retainUnmatched { ignored += 1; continue }
+            if missing { unresolved += 1 }
             let path = fields[1].trimmingCharacters(in: .whitespacesAndNewlines)
             let hierarchical = (2...128).contains(path.count) && path.count % 2 == 0 && path.utf8.allSatisfy {
-                (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0)
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
             }
-            result.append(BookChapter(title: title, pageIndex: index, level: hierarchical ? path.count / 2 - 1 : 0,
-                                      path: hierarchical ? path.lowercased() : nil))
+            result.append(BookChapter(title: title, pageIndex: missing ? -1 : matches.first ?? -1,
+                                      level: hierarchical ? path.count / 2 - 1 : 0,
+                                      path: hierarchical ? path.lowercased() : nil,
+                                      unresolvedDAT: missing ? target : nil))
         }
-        return (result, ignored > 0 ? "已忽略 \(ignored) 条失效目录记录。" : nil)
+        var notices: [String] = []
+        if unresolved > 0 { notices.append("有 \(unresolved) 条旧目录暂未定位，保留原页号。") }
+        if ignored > 0 { notices.append("有 \(ignored) 条目录记录无法解析，原目录暂不可覆盖。") }
+        return (result, notices.isEmpty ? nil : notices.joined(separator: " "), ignored > 0)
     }
 
     static func contentsText(_ raw: Data) throws -> String {
@@ -432,28 +458,84 @@ private extension Data {
 }
 
 struct BookEditDraft: Codable {
-    struct Chapter: Codable, Equatable { var title: String; var page: Int; var level: Int; var unresolvedTarget: String? = nil }
+    struct Chapter: Codable, Equatable { var title: String; var page: Int; var level: Int; var unresolvedTarget: String? = nil; var pdfOutlineIndex: Int? = nil }
     var chapters: [Chapter]
     var metadata: [String: String]
     init(book: BookArchive) {
-        chapters = book.chapters.map { Chapter(title: $0.title, page: $0.pageIndex + 1, level: $0.level) }
+        chapters = book.chapters.map { Chapter(title: $0.title, page: $0.pageIndex + 1, level: $0.level, unresolvedTarget: $0.unresolvedDAT?.token, pdfOutlineIndex: $0.pdfOutlineIndex) }
         metadata = book.metadata
     }
     func validated(for book: BookArchive) throws -> [BookChapter] {
         guard chapters.count <= 50_000 else { throw ReaderFailure("目录项不能超过 50000 条。") }
         var previous = -1, counters = [Int](repeating: 0, count: 33)
-        return try chapters.map { row in
-            guard row.unresolvedTarget == nil else { throw ReaderFailure("目录中仍有未匹配的页号：" + (row.unresolvedTarget ?? "") + "，请修正后保存。") }
+        let original = BookEditDraft(book: book).chapters
+        let rows = try Self.inheritingPDFIdentities(chapters, from: original)
+        var retained = book.chapters.compactMap(\.unresolvedDAT).reduce(into: [String: [DATPageTarget]]()) { $0[$1.token, default: []].append($1) }
+        var usedPDFIdentities = Set<Int>()
+        return try rows.map { row in
+            var unresolvedDAT: DATPageTarget?
+            if let token = row.unresolvedTarget {
+                guard row.page == 0, book.usesPDGNumbering, retained[token]?.isEmpty == false else {
+                    throw ReaderFailure("新增或修改的页号未匹配：" + token + "，请核对后保存。")
+                }
+                unresolvedDAT = retained[token]?.removeLast()
+            }
+            var outlineIndex: Int?
+            if let identity = row.pdfOutlineIndex, original.indices.contains(identity),
+               original[identity].pdfOutlineIndex == identity, original[identity].page == row.page {
+                guard usedPDFIdentities.insert(identity).inserted else { throw ReaderFailure("PDF 目录项标识重复，请重新打开目录。") }
+                outlineIndex = identity
+            }
             let title = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty, !title.contains("|"), !title.contains("\n"), !title.contains("\r"), title.count <= 1000 else { throw ReaderFailure("目录名称不能为空，也不能包含竖线或换行。") }
             guard (0...book.pages.count).contains(row.page), row.level >= 0, row.level <= 32, row.level <= previous + 1 else { throw ReaderFailure("目录页码须在文档范围内；首项层级为 1，相邻项最多加深一级。") }
             counters[row.level] += 1
-            guard counters[row.level] <= 255 else { throw ReaderFailure("同一级的兄弟目录不能超过 255 项。") }
+            if !book.storesNativeInformation && counters[row.level] >= 36 * 36 {
+                throw ReaderFailure("同一层级的兄弟目录不能超过 1295 项。")
+            }
             if row.level < 32 { for i in row.level+1...32 { counters[i] = 0 } }
             previous = row.level
-            let path = counters.prefix(row.level + 1).map { String(format: "%02x", $0) }.joined()
-            return BookChapter(title: title, pageIndex: row.page - 1, level: row.level, path: path)
+            let path: String? = book.usesPDGNumbering || !book.storesNativeInformation
+                ? counters.prefix(row.level + 1).map { value in (value < 36 ? "0" : "") + String(value, radix: 36) }.joined()
+                : nil
+            return BookChapter(title: title, pageIndex: row.page - 1, level: row.level, path: path, unresolvedDAT: unresolvedDAT, pdfOutlineIndex: outlineIndex)
         }
+    }
+    private struct OutlineKey: Hashable {
+        let title: String
+        let page: Int
+
+        init(_ chapter: Chapter) {
+            title = chapter.title.trimmingCharacters(in: .whitespaces)
+            page = chapter.page
+        }
+    }
+
+    // Text editing represents only title, level and target. Keep an existing
+    // PDF item attached when its identity can be determined from that text.
+    static func inheritingPDFIdentities(_ edited: [Chapter], from original: [Chapter]) throws -> [Chapter] {
+        let existing = original.filter { $0.pdfOutlineIndex != nil }
+        guard !existing.isEmpty else { return edited }
+        var rows = edited
+        var used = Set(edited.compactMap(\.pdfOutlineIndex))
+        var byTitleAndPage = Dictionary(grouping: existing.reversed(), by: OutlineKey.init)
+        for i in rows.indices where rows[i].pdfOutlineIndex == nil {
+            let key = OutlineKey(rows[i])
+            while let item = byTitleAndPage[key]?.popLast(), let identity = item.pdfOutlineIndex {
+                if used.insert(identity).inserted { rows[i].pdfOutlineIndex = identity; break }
+            }
+        }
+        let remaining = existing.filter { !used.contains($0.pdfOutlineIndex!) }
+        let oldByPage = Dictionary(grouping: remaining, by: \.page)
+        let newByPage = Dictionary(grouping: rows.indices.filter { rows[$0].pdfOutlineIndex == nil }) { rows[$0].page }
+        for (page, indices) in newByPage {
+            guard let old = oldByPage[page] else { continue }
+            guard old.count == 1, indices.count == 1 else {
+                throw ReaderFailure("同一页面的多个 PDF 目录项同时改动，无法确定应保留哪一个原目标。请在树形模式分别修改。")
+            }
+            rows[indices[0]].pdfOutlineIndex = old[0].pdfOutlineIndex
+        }
+        return rows
     }
     func encodedInfo() throws -> Data {
         for (key, value) in metadata {
@@ -476,6 +558,9 @@ extension BookArchive {
     /// Saves both DAT files as one ZIP replacement, retaining compressed page bytes unchanged.
     @discardableResult func saveEdits(_ draft: BookEditDraft, backup: Bool = false, preserveDates: Bool = true, writeContents: Bool = true, writeInfo: Bool = true) throws -> [URL] {
         guard !isPDZ else{throw ReaderFailure("PDZ 以只读方式打开，可在转换工作台另存为 PDF。")}
+        guard !writeContents || !hasUnreadableContents else {
+            throw ReaderFailure("原目录含无法解析的记录，保存会丢失这些内容。请先修复原目录。")
+        }
         if storesNativeInformation,let loose {
             if !writeContents && !writeInfo {return []}
             let chapters=writeContents ? try draft.validated(for:self) : nil
@@ -485,12 +570,19 @@ extension BookArchive {
         let sourceDates = try FileDateRecord(url)
         let chapters = writeContents ? try draft.validated(for: self) : []
         let info = writeInfo ? try draft.encodedInfo() : Data()
+        let pageTargets = Dictionary(grouping: pages.indices) { index in
+            DATPageTarget(type: pages[index].key.group + 1, number: pages[index].number)
+        }
         var lines: [String] = []
         for chapter in chapters {
+            if let target = chapter.unresolvedDAT {
+                lines.append("\(chapter.title)|\(chapter.path!)|\(target.number)|0|\(target.type)\r\n")
+                continue
+            }
             if chapter.pageIndex < 0 { lines.append("\(chapter.title)|\(chapter.path!)|0|0|0\r\n"); continue }
             let page = pages[chapter.pageIndex]
-            guard page.key.group < 8,
-                  pages.firstIndex(where: { $0.key.group == page.key.group && $0.number == page.number }) == chapter.pageIndex else {
+            let target = DATPageTarget(type: page.key.group + 1, number: page.number)
+            guard target.type <= 8, pageTargets[target] == [chapter.pageIndex] else {
                 throw ReaderFailure("该页无法唯一表示为 DAT 页码，请选择具有唯一页号的页面。")
             }
             lines.append("\(chapter.title)|\(chapter.path!)|\(page.number)|0|\(page.key.group + 1)\r\n")

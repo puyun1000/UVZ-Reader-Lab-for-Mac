@@ -749,7 +749,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
                         }
                         editor.onSaved = { [weak self] _ in self?.bookmarksSaved(for: item) }
                         controller.close()
-                        NativeDialog.present(editor.window, on: self.window)
+                        editor.show(on: self.window)
                         return true
                     }
                     controller.show(on: self.window)

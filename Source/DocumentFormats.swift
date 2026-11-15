@@ -26,6 +26,7 @@ final class LooseBook {
     let chapters: [BookChapter]
     let title: String
     let notice: String?
+    let hasUnreadableContents: Bool
     let hasContents: Bool
     let kind: String
     let metadataDirectory: URL
@@ -49,7 +50,7 @@ final class LooseBook {
         nativeDigest = ["pdf","djvu","djv"].contains(kind) ? Data(SHA256.hash(data:try Data(contentsOf:url,options:.mappedIfSafe))) : Data()
         metadataDirectory = kind == "folder" ? url : URL(fileURLWithPath: url.path + ".uvzmeta", isDirectory: true)
         var pages: [BookPage] = [], nativeChapters: [BookChapter] = [], info: [String: String] = [:]
-        var nativeHasContents = false
+        var nativeHasContents = false, invalidNativeOutline = false
         if kind == "folder" || kind == "pdg" {
             files = kind == "folder" ? try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension.lowercased() == "pdg" }.sorted { pageKey($0.lastPathComponent) < pageKey($1.lastPathComponent) } : [url]
@@ -74,14 +75,16 @@ final class LooseBook {
                 pdf = document; count = document.pageCount
                 info = NativeDocumentMetadata.pdfValues(document)
                 func visit(_ node: PDFOutline, level: Int) {
-                    guard level < 64, nativeChapters.count < 100_000 else { return }
+                    guard level < 64, nativeChapters.count < 100_000 else { invalidNativeOutline = true; return }
                     for i in 0..<node.numberOfChildren {
-                        guard let child = node.child(at: i) else { continue }
+                        guard let child = node.child(at: i) else { invalidNativeOutline = true; continue }
                         let destination = child.destination ?? (child.action as? PDFActionGoTo)?.destination
                         if let label=child.label,!label.isEmpty {
                             let index=destination?.page.map {document.index(for:$0)} ?? -1
-                            if index == -1 || (0..<count).contains(index) { nativeChapters.append(BookChapter(title:label,pageIndex:index,level:level,path:nil)) }
-                        }
+                            if index == -1 || (0..<count).contains(index) {
+                                nativeChapters.append(BookChapter(title: label, pageIndex: index, level: level, path: nil, pdfOutlineIndex: nativeChapters.count))
+                            } else { invalidNativeOutline = true }
+                        } else { invalidNativeOutline = true }
                         visit(child, level: level + 1)
                     }
                 }
@@ -115,9 +118,15 @@ final class LooseBook {
         }
         metadata = info; title = info["书名"].flatMap { $0.isEmpty ? nil : $0 } ?? url.deletingPathExtension().lastPathComponent
         if let contents {
-            do { let parsed = try BookArchive.parseContents(Self.smallData(contents), pages: pages); chapters = parsed.0; notice = parsed.1 }
-            catch { chapters = []; notice = "电子目录未能读取：" + error.localizedDescription }
-        } else { chapters = nativeChapters; notice = nil }
+            do {
+                let parsed = try BookArchive.parseContents(Self.smallData(contents), pages: pages, retainUnmatched: kind == "folder" || kind == "pdg")
+                chapters = parsed.0; notice = parsed.1; hasUnreadableContents = parsed.2
+            } catch { chapters = []; notice = "电子目录未能读取：" + error.localizedDescription; hasUnreadableContents = true }
+        } else {
+            chapters = nativeChapters
+            notice = invalidNativeOutline ? "PDF 含无法完整载入的书签，原目录暂不可覆盖。" : nil
+            hasUnreadableContents = invalidNativeOutline
+        }
         hasContents = contents != nil || nativeHasContents
     }
     static func find(_ name: String, in folder: URL) throws -> URL? {

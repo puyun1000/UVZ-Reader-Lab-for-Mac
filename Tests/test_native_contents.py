@@ -1,7 +1,8 @@
 """Native PDF/DjVu outline transactions and legacy directory migration."""
 from pathlib import Path
 import json,subprocess,tempfile,tarfile,hashlib,os
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import DictionaryObject, Fit, NameObject, TextStringObject
 from PIL import Image
 from reportlab.pdfgen import canvas
 r=Path(__file__).resolve().parents[1];exe=r/'UVZ Reader Lab.app/Contents/MacOS/UVZReaderLab';checks=[]
@@ -53,5 +54,24 @@ with tempfile.TemporaryDirectory(prefix='uvz-native-contents-') as td:
   plan.write_text(json.dumps(dict(chapters=[],metadata={})));before=target.read_bytes();result=run('--apply-draft',target,plan,'--contents-only','--backup')
   assert any(Path(p).read_bytes()==before for p in result['backups']) and run('--inspect',target)['chapters']==[]
   checks.append(ext+': clear native directory and exact original backup')
+ # A title-only edit keeps old /XYZ parameters and an external action verbatim.
+ path=f/'target-types.pdf'; writer=PdfWriter()
+ for _ in range(3): writer.add_blank_page(width=300,height=450)
+ master=writer.add_outline_item('Original XYZ',1,fit=Fit.xyz(left=17,top=423,zoom=1.25))
+ writer.add_outline_item('Original FitH',2,parent=master,fit=Fit.fit_horizontally(top=388))
+ external=writer.add_outline_item('External action',None)
+ external.get_object()[NameObject('/A')]=DictionaryObject({NameObject('/S'):NameObject('/URI'),NameObject('/URI'):TextStringObject('https://example.com/reference')})
+ writer.set_page_label(0,0,style='/r')
+ with path.open('wb') as stream:writer.write(stream)
+ raw=path.read_bytes()
+ plan.write_text(json.dumps(dict(chapters=[dict(title='Renamed XYZ',page=2,level=0),dict(title='Original FitH',page=3,level=1),dict(title='External action',page=0,level=0)],metadata={})))
+ run('--apply-draft',path,plan,'--contents-only')
+ original=PdfReader(path); outline=original.trailer['/Root']['/Outlines']['/First']
+ assert path.read_bytes().startswith(raw) and original.page_labels[0]=='i'
+ assert original.outline[0]['/Title']=='Renamed XYZ'
+ assert list(outline['/A']['/D'][1:])==['/XYZ',17,423,1.25]
+ assert list(outline['/First']['/A']['/D'][1:])==['/FitH',388]
+ assert outline['/Next']['/A']['/URI']=='https://example.com/reference'
+ checks.append('PDF title-only editing preserves XYZ, FitH, external action and PageLabels')
  assert not list(f.glob('.uvz-*'));checks.append('all native directory transaction scratch files removed')
 print(json.dumps(dict(passed=len(checks),checks=checks),ensure_ascii=False,indent=2))

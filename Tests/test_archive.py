@@ -53,7 +53,9 @@ def main():
         code, out, err = run(contents)
         assert code == 0, err
         report = json.loads(out)
-        assert report['chapters'] == [{'title': '第一章', 'page': 1, 'level': 0}, {'title': '第一节', 'page': 2, 'level': 1}], report
+        assert report['chapters'] == [{'title': '第一章', 'page': 1, 'level': 0}, {'title': '第一节', 'page': 2, 'level': 1},
+                                      {'title': '失效项', 'page': 0, 'level': 0}], report
+        assert report['unresolvedTargets'] == [None, None, '999']
         assert '1 条' in report['contentsNotice'], report
         passed.append('明文电子目录的层级、页码对应与失效记录处理')
 
@@ -64,6 +66,32 @@ def main():
         assert code == 0, err
         assert json.loads(out)['chapters'] == report['chapters']
         passed.append('SSCNTS 目录的 40 字节头与 zlib 解压')
+
+        # Saving another title must round-trip old missing and ambiguous targets.
+        edit = root / 'edit.json'
+        rows = [dict(chapter) for chapter in report['chapters']]
+        rows[0]['title'] = '校订标题'
+        rows[-1]['unresolvedTarget'] = '999'
+        edit.write_text(json.dumps({'chapters': rows, 'metadata': {}}, ensure_ascii=False))
+        result = subprocess.run([str(EXECUTABLE), '--apply-draft', str(compressed), str(edit), '--contents-only'], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        with zipfile.ZipFile(compressed) as archive:
+            assert '失效项|02|999|0|6' in archive.read('Bookcontents.dat').decode()
+        unchanged = compressed.read_bytes()
+        rows[-1]['unresolvedTarget'] = '1000'
+        edit.write_text(json.dumps({'chapters': rows, 'metadata': {}}, ensure_ascii=False))
+        result = subprocess.run([str(EXECUTABLE), '--apply-draft', str(compressed), str(edit), '--contents-only'], capture_output=True, text=True)
+        assert result.returncode != 0 and compressed.read_bytes() == unchanged, result.stderr
+        passed.append('保存保留原失配页号并拒绝新失配页号，原件不被部分替换')
+
+        damaged = root / 'unreadable-contents.zip'
+        write(damaged, [('000001.pdg', PNG), ('Bookcontents.dat', b'broken\r\n')])
+        unchanged = damaged.read_bytes()
+        edit.write_text(json.dumps({'chapters': [], 'metadata': {}}))
+        result = subprocess.run([str(EXECUTABLE), '--apply-draft', str(damaged), str(edit), '--contents-only'], capture_output=True, text=True)
+        assert result.returncode != 0 and damaged.read_bytes() == unchanged, result.stderr
+        passed.append('无法解析的旧目录拒绝覆盖')
+
 
         multi = root / 'multi.zip'
         write(multi, [('a/000001.pdg', PNG), ('b/000002.pdg', PNG)])

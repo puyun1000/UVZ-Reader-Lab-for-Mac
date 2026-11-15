@@ -168,7 +168,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc private func undoEdit() { focusedUndoManager?.undo() }
     @objc private func redoEdit() { focusedUndoManager?.redo() }
     @objc private func findContents() { active?.editor?.showContentsTab(); active?.editor?.findReplace() }
+    @objc private func saveDirectoryDraft() { (NSApp.keyWindow?.delegate as? BookEditor)?.saveDraft() }
+    @objc private func toggleDirectoryPreview() { (NSApp.keyWindow?.delegate as? BookEditor)?.togglePagePreview() }
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(saveDirectoryDraft) { return (NSApp.keyWindow?.delegate as? BookEditor)?.canSave == true }
+        if item.action == #selector(toggleDirectoryPreview) { return NSApp.keyWindow?.delegate is BookEditor }
         if item.action == #selector(closeCurrentContext),["UVZBatchNaming","UVZConversion"].contains(NSApplication.shared.keyWindow?.identifier?.rawValue ?? "") { item.title = "关闭当前窗口"; return true }
         if item.action == #selector(closeCurrentContext) { item.title = NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZDocumentDialog" ? "关闭当前窗口" : "关闭当前书籍"; return epubReaders.contains {$0.window.isKeyWindow && $0.book != nil} || active?.book != nil || NSApplication.shared.keyWindow?.identifier?.rawValue == "UVZDocumentDialog" }
         if item.action == #selector(toggleBackups) { item.state = AppSettings().backups ? .on : .off; return true }
@@ -195,7 +199,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let recent = NSMenuItem(title: "最近打开", action: nil, keyEquivalent: ""); recent.submenu = recentMenu; recentMenu.delegate = self
         _ = addMenu("文件", [item("新建阅读窗口", #selector(newWindow), "n", target: self), item("打开电子书…", #selector(chooseBooks), "o", target: self), recent, item("转换工作台…",#selector(conversionCommand),"k",target:self,modifiers:[.command,.shift]),item("批量规范命名…",#selector(batchNamingCommand),"b",target:self,modifiers:[.command,.shift]),
             .separator(), item("书籍信息与重命名…", #selector(ReaderController.renameZip), "r", modifiers: [.command, .shift]), 
-            item("编辑目录…", #selector(ReaderController.editBook), "e", modifiers: [.command, .shift]),item("在线目录与封面…",#selector(ReaderController.showOnlineReferences)), .separator(), item("保存前备份原文件", #selector(toggleBackups), target: self), .separator(), item("关闭当前书籍", #selector(closeCurrentContext), "w", target: self),
+            item("编辑目录…", #selector(ReaderController.editBook), "e", modifiers: [.command, .shift]), item("保存目录", #selector(saveDirectoryDraft), "s", target: self),
+            item("在线目录与封面…",#selector(ReaderController.showOnlineReferences)), .separator(), item("保存前备份原文件", #selector(toggleBackups), target: self), .separator(), item("关闭当前书籍", #selector(closeCurrentContext), "w", target: self),
             item("关闭窗口", #selector(NSWindow.performClose(_:)), "w", modifiers: [.command, .shift])], to: main)
         let editingMenu = addMenu("编辑", [item("撤销", #selector(undoEdit), "z", target: self), item("重做", #selector(redoEdit), "z", target: self, modifiers: [.command, .shift]), .separator(), item("剪切", #selector(NSText.cut(_:)), "x"), item("复制", #selector(NSText.copy(_:)), "c"), item("全选", #selector(NSText.selectAll(_:)), "a"), item("粘贴", #selector(NSText.paste(_:)), "v"), .separator(), item("查找目录…", #selector(findContents), "f", target: self)], to: main)
         let conversions=NSMenuItem(title:"文字转换",action:nil,keyEquivalent:"");conversions.submenu=TextConversion.menu(target:nil,action:#selector(ChineseTextView.convertSelection));editingMenu.addItem(conversions)
@@ -206,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             item("双页时首页单独显示", #selector(ReaderController.toggleCoverAlone)), item("滚轮直接翻页", #selector(ReaderController.toggleWheelPaging)),
             item("从右至左", #selector(ReaderController.toggleDirection)), .separator(), item("框选识别目录…", #selector(ReaderController.recognizeRegion), "r", modifiers: [.command,.option]), item("识字", #selector(ReaderController.recognizeVisible)), item("自动识字", #selector(ReaderController.toggleOCR))], to: main)
         _ = addMenu("显示", [item("显示目录栏", #selector(ReaderController.toggleSidebar), "d", modifiers: [.command, .shift]),
+            item("目录编辑原页预览", #selector(toggleDirectoryPreview), target: self),
             item("显示页码作为目录项", #selector(ReaderController.togglePageNumbers)), item("全部展开目录", #selector(ReaderController.expandContents)), item("全部折叠目录", #selector(ReaderController.collapseContents)), .separator(),
             item("适合宽度", #selector(ReaderController.fitWidth)), item("适合整页", #selector(ReaderController.fitWhole)), item("适合高度", #selector(ReaderController.fitHeight)), item("原始大小", #selector(ReaderController.actualSize)),
             item("放大", #selector(ReaderController.zoomIn), "+"), item("缩小", #selector(ReaderController.zoomOut), "-"), .separator(),

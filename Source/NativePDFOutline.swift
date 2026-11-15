@@ -212,11 +212,66 @@ enum NativePDFOutline {
             try visit(ref(catalog["Pages"]),0);return pages
         }
     }
+    private struct OutlineItem {
+        let fields: [String: Data]
+        let level: Int
+
+        var targetFields: [String: Data] {
+            fields.filter { ["Dest", "A", "SE"].contains(decodedName($0.key)) }
+        }
+    }
+
+    private static func outlineItems(in source: Source, catalog: [String: Data]) throws -> [OutlineItem] {
+        func field(_ name: String, in dictionary: [String: Data]) -> Data? {
+            dictionary.first { decodedName($0.key) == name }?.value
+        }
+        func optionalRef(_ value: Data?) throws -> Ref? {
+            guard let value, value != Data("null".utf8) else { return nil }
+            return try ref(value)
+        }
+        guard let outline = try optionalRef(field("Outlines", in: catalog)) else { return [] }
+        let root = try dict(source.object(outline).value)
+        var items: [OutlineItem] = [], seen: Set<Ref> = [outline]
+        func walk(_ first: Ref?, level: Int) throws {
+            var next = first
+            while let current = next {
+                guard level <= 32, items.count < 50_000, seen.insert(current).inserted else {
+                    throw failure("原书签树循环或超限")
+                }
+                let fields = try dict(source.object(current).value)
+                guard field("Title", in: fields) != nil else { throw failure("原书签缺少标题") }
+                items.append(OutlineItem(fields: fields, level: level))
+                try walk(optionalRef(field("First", in: fields)), level: level + 1)
+                next = try optionalRef(field("Next", in: fields))
+            }
+        }
+        try walk(optionalRef(field("First", in: root)), level: 0)
+        return items
+    }
+
     static func write(_ chapters:[BookChapter],attributes:[AnyHashable:Any],from source:URL,to target:URL)throws {
         guard source.standardizedFileURL != target.standardizedFileURL else {throw failure("临时目标与原文件相同")}
         let pdf=try Source(source),root=try ref(pdf.trailer["Root"]);var catalog=try dict(pdf.object(root).value)
         let pages=try pdf.pageReferences(catalog)
         guard !pages.isEmpty,chapters.count<=50000,chapters.allSatisfy({$0.pageIndex>=(-1) && $0.pageIndex<pages.count && $0.level>=0 && $0.level<=32}) else {throw failure("目录目标或层级无效")}
+        let preserved = chapters.compactMap(\.pdfOutlineIndex)
+        let original = preserved.isEmpty ? [] : try outlineItems(in: pdf, catalog: catalog)
+        if !preserved.isEmpty {
+            guard let document = PDFDocument(url: source), let view = document.outlineRoot else { throw failure("无法核对原书签树") }
+            var levels: [Int] = []
+            func visit(_ node: PDFOutline, level: Int) {
+                guard level <= 32, levels.count <= 50_000 else { return }
+                for index in 0..<node.numberOfChildren {
+                    guard let child = node.child(at: index) else { continue }
+                    levels.append(level)
+                    visit(child, level: level + 1)
+                }
+            }
+            withExtendedLifetime(document) { visit(view, level: 0) }
+            guard original.map(\.level) == levels, preserved.allSatisfy(original.indices.contains) else {
+                throw failure("原书签结构无法核对")
+            }
+        }
         let info=pdf.size,outlines=info+1,nodeStart=info+2,newSize=nodeStart+chapters.count
         var children=[Int:[Int]](),parents=[Int](),stack=[Int]()
         for (i,chapter) in chapters.enumerated() {
@@ -252,18 +307,30 @@ enum NativePDFOutline {
         var rootData=Data("<<\n".utf8)
         for key in catalog.keys.sorted() {rootData.append(Data(("/"+key+" ").utf8));rootData.append(catalog[key]!);rootData.append(10)}
         rootData.append(Data(">>".utf8));try append(root.number,root.generation,rootData)
-        func branch(_ i:Int)->String {
+        func branch(_ i:Int, collapsed: Bool = false)->String {
             guard let list=children[i],let first=list.first,let last=list.last else {return ""}
-            return " /First \(reference(first)) /Last \(reference(last)) /Count \(i<0 ? chapters.count:descendants[i])"
+            let count = i < 0 ? chapters.count : descendants[i] * (collapsed ? -1 : 1)
+            return " /First \(reference(first)) /Last \(reference(last)) /Count \(count)"
         }
         try append(outlines,0,Data(("<< /Type /Outlines"+branch(-1)+" >>").utf8))
         for (i,chapter) in chapters.enumerated() {
             let siblings=children[parents[i]]!,position=siblings.firstIndex(of:i)!
-            var text="<< /Title "+PDFInformationRevision.pdfString(chapter.title)+" /Parent "+reference(parents[i])+branch(i)
+            let sourceItem = chapter.pdfOutlineIndex.map { original[$0] }
+            let collapsed = (integer(sourceItem?.fields["Count"]) ?? 0) < 0
+            var text="<< /Title "+PDFInformationRevision.pdfString(chapter.title)+" /Parent "+reference(parents[i])+branch(i, collapsed: collapsed)
             if position>0 {text += " /Prev "+reference(siblings[position-1])}
             if position+1<siblings.count {text += " /Next "+reference(siblings[position+1])}
-            if chapter.pageIndex>=0 {text += " /Dest [\(pages[chapter.pageIndex].text) /Fit]"}
-            try append(nodeStart+i,0,Data((text+" >>").utf8))
+            if sourceItem == nil, chapter.pageIndex>=0 {text += " /Dest [\(pages[chapter.pageIndex].text) /Fit]"}
+            var node = Data(text.utf8)
+            if let sourceItem {
+                let structure = Set(["Parent", "Title", "Count", "First", "Last", "Prev", "Next"])
+                for key in sourceItem.fields.keys.sorted() where !structure.contains(decodedName(key)) {
+                    node.append(Data((" /"+key+" ").utf8))
+                    node.append(sourceItem.fields[key]!)
+                }
+            }
+            node.append(Data(" >>".utf8))
+            try append(nodeStart+i,0,node)
         }
         let xref=pdf.data.count+revision.count
         if pdf.usesXrefStreams {
@@ -311,5 +378,14 @@ enum NativePDFOutline {
         guard FileManager.default.createFile(atPath:target.path,contents:nil) else {throw failure("无法创建临时结果")}
         let handle=try FileHandle(forWritingTo:target);defer {try? handle.close()}
         try handle.write(contentsOf:pdf.data);try handle.write(contentsOf:revision);try handle.synchronize()
+        if !preserved.isEmpty {
+            let result = try Source(target)
+            let saved = try outlineItems(in: result, catalog: dict(result.object(ref(result.trailer["Root"])).value))
+            guard saved.count == chapters.count,
+                  chapters.indices.allSatisfy({ index in
+                      guard let old = chapters[index].pdfOutlineIndex else { return true }
+                      return original[old].targetFields == saved[index].targetFields
+                  }) else { throw failure("原有书签目标回读不一致") }
+        }
     }
 }

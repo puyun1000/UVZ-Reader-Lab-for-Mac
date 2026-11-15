@@ -34,10 +34,25 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 reader.toggleSidebar();try check(reader.readingSplit.arrangedSubviews[0].isHidden,"可以隐藏目录栏")
                 reader.toggleSidebar();reader.window.contentView?.layoutSubtreeIfNeeded()
                 try check(abs(reader.readingSplit.arrangedSubviews[0].frame.width-430)<3,"重新显示目录保留调整后的宽度")
-                let controller=BookEditor(book:book);editor=controller;NativeDialog.present(controller.window,on:reader.window)
+                let controller=BookEditor(book:book);editor=controller;controller.show(on:reader.window)
                 controller.textView.string=String(repeating:"长目录文字",count:80)+"\t3\n无页码分组";controller.textView.refreshExtent();stage=1
             case 1:
-                let text=editor!.textView,manager=text.layoutManager!,container=text.textContainer!
+                guard let editor, editor.pagePreview.canvas.hasPage else { tick(); return }
+                let text = editor.textView, manager = text.layoutManager!, container = text.textContainer!
+                try check(editor.window.toolbar?.items.count == 4, "目录编辑使用原生工具栏")
+                try check(editor.pagePreview.frame.width >= 278, "同窗保留足够宽度的原页预览")
+                try check(editor.pagePreview.page == 0, "目录预览从阅读位置打开")
+                editor.window.makeFirstResponder(text)
+                text.setSelectedRange(NSRange(location: 2, length: 0))
+                try check(editor.pagePreview.page == 3, "文本光标所在条目联动目标物理页")
+                editor.showStructureTab()
+                editor.contentsTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+                try check(editor.pagePreview.page == 3, "树形模式选中条目保留同页预览")
+                editor.togglePagePreview()
+                try check(editor.pagePreview.isHidden, "可折叠预览并为目录释放空间")
+                editor.togglePagePreview()
+                try check(!editor.pagePreview.isHidden && editor.pagePreview.page == 3, "重新显示预览保留目标页")
+                editor.showContentsTab()
                 manager.ensureLayout(for:container)
                 let position=(text.string as NSString).range(of:"\t3").location+1
                 let first=manager.lineFragmentRect(forGlyphAt:0,effectiveRange:nil)
@@ -50,14 +65,14 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 text.string="甲 甲 甲";text.setSelectedRange(NSRange(location:0,length:0))
                 let find=ContentsFindWindow(text:text);find.find.stringValue="甲";find.replacement.stringValue="乙";find.nextMatch();find.replaceAll()
                 try check(text.string=="乙 乙 乙","查找选中一处后，全部替换仍修改全文三处")
-                text.string="甲 甲 甲";text.setSelectedRange(NSRange(location:0,length:1));find.show(on:editor!.window);find.selectionOnly.state = .on;find.replaceAll()
+                text.string="甲 甲 甲";text.setSelectedRange(NSRange(location:0,length:1));find.show(on:editor.window);find.selectionOnly.state = .on;find.replaceAll()
                 try check(text.string=="乙 甲 甲","明确选择仅选区时，范围不扩展")
                 find.window.close()
                 let cg=try reader.book!.pageImage(at:0),imageWindow=PageImageWindow(image:cg,title:"测试页面")
                 imageWindow.show();imageWindow.larger();imageWindow.fit()
                 try check(imageWindow.canvas.imageRect.width>0,"单页图像窗口能显示、缩放并恢复整页")
                 imageWindow.window.close()
-                editor!.window.close();editor=nil
+                editor.window.close();self.editor=nil
                 batch=BatchNamingWindow();batch!.useOCR.state = .off;batch!.loadFolder(folder);stage=2
             case 2:
                 guard let batch,!batch.isAnalysing,!batch.items.isEmpty,batch.items.allSatisfy({$0.proposal != nil}) else {tick();return}

@@ -7,13 +7,18 @@ final class EditorField: CenteredTextField {
 }
 
 /// A draft-only editor. Changes reach the book only after the Save button succeeds.
-final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSWindowDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSSplitViewDelegate {
-    let window = ChineseWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 790), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSWindowDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate, NSSplitViewDelegate, NSTextViewDelegate, NSToolbarDelegate {
+    let window = ChineseWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 790), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     let contentsTable = ContentsOutlineView()
     let structuralUndo = UndoManager()
     var editingUndoManager: UndoManager? { textActive ? textView.undoManager : (window.firstResponder is NSTextView ? window.firstResponder?.undoManager : structuralUndo) }
     private(set) var regionOCR: RegionOCRController?
-    var currentPage = 0
+    var currentPage = 0 {
+        didSet { if window.isVisible && !pagePreview.isHidden { pagePreview.setSource(book, origin: currentPage) } }
+    }
+    private let workspace = NSSplitView()
+    let pagePreview: ContentsPagePreview
+    private var previewAddressing: PageAddressing
     let textView = ContentsTextView()
     let categoryPopup = NSPopUpButton()
     let baseField = CenteredTextField(string: "1")
@@ -38,18 +43,19 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     var onSaved: (([URL]) -> Void)?
     var onClosed: (() -> Void)?
     private var busy = false
+    var canSave: Bool { !busy && !window.hasDocumentDialog && !book.hasUnreadableContents }
     init(book: BookArchive, allowPageRepair: Bool = true) {
-        self.book = book; draft = BookEditDraft(book: book)
+        self.book = book
+        draft = BookEditDraft(book: book)
+        pagePreview = ContentsPagePreview(book: book)
+        previewAddressing = PageAddressing(book)
         super.init()
         structuralUndo.groupsByEvent = false
-        window.title = "编辑目录 — " + book.title; window.isReleasedWhenClosed = false; window.delegate = self; window.minSize = NSSize(width: 960, height: 680)
+        window.title = "编辑目录 — " + book.title; window.isReleasedWhenClosed = false; window.delegate = self; window.minSize = NSSize(width: 1000, height: 680)
         let root = NSStackView(); root.orientation = .vertical; root.alignment = .leading; root.spacing = 10; root.edgeInsets = .init(top: 16, left: 16, bottom: 16, right: 16)
         let host = NSView(); window.contentView = host
         root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: host.leadingAnchor), root.trailingAnchor.constraint(equalTo: host.trailingAnchor), root.topAnchor.constraint(equalTo: host.topAnchor), root.bottomAnchor.constraint(equalTo: host.bottomAnchor)])
-        let heading = CenteredTextField(labelWithString: "目录编辑：TAB 缩进文字录入，也可切换树形调整。")
-        let location = CenteredTextField(wrappingLabelWithString: "保存位置：" + book.editingLocation + "\n备份默认关闭，可在“文件 → 保存前备份原文件”中勾选。保存前的修改均为草稿。")
-        location.font = .systemFont(ofSize: 11); location.textColor = .secondaryLabelColor
         editorArea.translatesAutoresizingMaskIntoConstraints = false
         modeControl.segmentCount = 2; modeControl.trackingMode = .selectOne
         modeControl.setLabel("文本录入", forSegment: 0); modeControl.setLabel("树形调整", forSegment: 1)
@@ -69,13 +75,105 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         renderText(); textActive = true; showPane(textPane); modeControl.selectedSegment = 0
         rebuildTree()
         message.font = .systemFont(ofSize: 11); message.textColor = .secondaryLabelColor
-        message.stringValue = book.contentsNotice.map { $0 + " 保存会按当前列表重建目录。" } ?? "文本模式支持撤销、TAB／Shift+TAB 和回车自动缩进；无页码的标题可作为分组。"
+        message.stringValue = book.contentsNotice ?? "文本模式支持撤销、TAB／Shift+TAB 和回车自动缩进；无页码的标题可作为分组。"
         saveButton.target = self; saveButton.action = #selector(saveDraft); saveButton.keyEquivalent = "\r"; saveButton.bezelStyle = .rounded
         let cancel = makeButton("取消", #selector(cancel)); cancel.keyEquivalent = "\u{1b}"
-        let footer = NSStackView(views: [NSView(), cancel, saveButton]); footer.spacing = 10
-        for view in [heading, location, tabButtons, editorArea, message, footer] { root.addArrangedSubview(view); view.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -32).isActive = true }
-        editorArea.heightAnchor.constraint(greaterThanOrEqualToConstant: 350).isActive = true
+        saveButton.isEnabled = !book.hasUnreadableContents
+        saveButton.toolTip = book.editingLocation
+        let footer = NSStackView(views: [message, NSView(), cancel]); footer.spacing = 10
+        message.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let editColumn = NSStackView(views: [tabButtons, editorArea])
+        editColumn.orientation = .vertical
+        editColumn.alignment = .leading
+        editColumn.spacing = 8
+        for view in [tabButtons, editorArea] { view.widthAnchor.constraint(equalTo: editColumn.widthAnchor).isActive = true }
+        workspace.isVertical = true
+        workspace.dividerStyle = .thin
+        workspace.delegate = self
+        workspace.addArrangedSubview(pagePreview)
+        workspace.addArrangedSubview(editColumn)
+        workspace.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        workspace.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
+        for view in [workspace, footer] {
+            root.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -32).isActive = true
+        }
+        workspace.heightAnchor.constraint(greaterThanOrEqualToConstant: 390).isActive = true
         editorArea.setContentHuggingPriority(.defaultLow, for: .vertical)
+        let toolbar = NSToolbar(identifier: "DirectoryEditor")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconAndLabel
+        window.toolbarStyle = .unifiedCompact
+        window.toolbar = toolbar
+    }
+    private static let previewItem = NSToolbarItem.Identifier("DirectoryPreview")
+    private static let recognitionItem = NSToolbarItem.Identifier("DirectoryOCR")
+    private static let saveItem = NSToolbarItem.Identifier("DirectorySave")
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [Self.previewItem, Self.recognitionItem, .flexibleSpace, Self.saveItem]
+    }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarAllowedItemIdentifiers(toolbar)
+    }
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        switch identifier {
+        case Self.previewItem:
+            item.label = "原页预览"
+            item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: item.label)
+            item.target = self; item.action = #selector(togglePagePreview)
+        case Self.recognitionItem:
+            item.label = "框选识别"
+            item.image = NSImage(systemSymbolName: "text.viewfinder", accessibilityDescription: item.label)
+            item.target = self; item.action = #selector(openRegionOCR)
+        case Self.saveItem:
+            item.label = "保存目录"
+            item.view = saveButton
+        default: return nil
+        }
+        return item
+    }
+    func show(on parent: NSWindow) {
+        NativeDialog.present(window, on: parent)
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.setPosition(workspace.bounds.width * 0.36, ofDividerAt: 0)
+        pagePreview.setSource(book, origin: currentPage)
+    }
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        max(278, proposed)
+    }
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposed: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        min(proposed, splitView.bounds.width - 515)
+    }
+    @objc func togglePagePreview() {
+        pagePreview.isHidden.toggle()
+        workspace.adjustSubviews()
+        if !pagePreview.isHidden {
+            workspace.setPosition(workspace.bounds.width * 0.36, ofDividerAt: 0)
+            if pagePreview.page == nil { pagePreview.setSource(book, origin: currentPage) }
+        }
+    }
+    func outlineViewSelectionDidChange(_ notification: Notification) {
+        let index = selectedChapterIndex
+        guard !textActive, !pagePreview.isHidden, draft.chapters.indices.contains(index) else { return }
+        let entry = draft.chapters[index]
+        if entry.page > 0 { pagePreview.showPage(entry.page - 1) }
+        else if let target = entry.unresolvedTarget {
+            message.stringValue = "目标页 \(target) 未定位，保留原页号供校对。"
+        }
+    }
+    func textViewDidChangeSelection(_ notification: Notification) {
+        guard textActive, !pagePreview.isHidden, window.firstResponder === textView,
+              textView.selectedRange().length == 0 else { return }
+        let text = textView.string as NSString
+        let range = text.lineRange(for: textView.selectedRange())
+        let line = text.substring(with: range).drop(while: { $0 == "\t" })
+        guard let tab = line.lastIndex(of: "\t"),
+              let target = try? previewAddressing.resolve(String(line[line.index(after: tab)...]),
+                                                          defaultGroup: activeCategory == 0 ? 5 : activeCategory - 1) else { return }
+        pagePreview.showPage(target - 1)
     }
     private func makeButton(_ title: String, _ action: Selector) -> NSButton {
         let button = NSButton(title: title, target: self, action: action); button.bezelStyle = .rounded; return button
@@ -94,7 +192,8 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
                 if self.draft.chapters[index].page > 0 { self.draft.chapters[index].page = (map[self.draft.chapters[index].page-1] ?? 0)+1 }
                 if let target = self.draft.chapters[index].unresolvedTarget,let physical = try? PageAddressing(updated,base:self.basePage).resolve(target) { self.draft.chapters[index].page = physical; self.draft.chapters[index].unresolvedTarget = nil }
             }
-            self.book = updated; self.structuralUndo.removeAllActions(); self.renderText(); self.rebuildTree()
+            self.book = updated; self.previewAddressing = PageAddressing(updated, base: self.basePage)
+            self.pagePreview.setSource(updated, origin: self.currentPage); self.structuralUndo.removeAllActions(); self.renderText(); self.rebuildTree()
             self.message.stringValue = "页面编码已纠正；目录草稿与阅读位置已同步。目录草稿仍需单独保存。"
             self.onPageRepaired?(updated,map)
         }
@@ -109,7 +208,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     @objc func showStructureTab() {
         finishEditing(); guard commitText() else { modeControl.selectedSegment = textActive ? 0 : 1; return }
         textActive = false; rebuildTree(); showPane(contentsPane); modeControl.selectedSegment = 1
-        message.stringValue = "树形显示全部页面类型。页号可直接修改；非正文使用 cov／bok／leg／fow／!／att／bac 前缀，红色页号须在保存前修正。"
+        message.stringValue = "树形显示全部页面类型。页号可直接修改；非正文使用 cov／bok／leg／fow／!／att／bac 前缀，旧目录未定位的页号可保留，新增无效页号须先修正。"
         message.textColor = .secondaryLabelColor
     }
     var isTextMode: Bool { textActive }
@@ -135,7 +234,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         categoryPopup.addItems(withTitles: ["全部类型", "封面", "书名", "版权", "前言", "目录", "正文", "附录", "封底"])
         categoryPopup.target = self; categoryPopup.action = #selector(categoryChanged)
         categoryControl.segmentCount = 9; categoryControl.trackingMode = .selectOne; categoryControl.selectedSegment = 0
-        for (index,title) in ["全部", "封面", "书名", "版权", "前言", "目录", "正文", "附录", "封底"].enumerated() { categoryControl.setLabel(title,forSegment:index); categoryControl.setWidth(82,forSegment:index) }
+        for (index,title) in ["全部", "封面", "书名", "版权", "前言", "目录", "正文", "附录", "封底"].enumerated() { categoryControl.setLabel(title,forSegment:index); categoryControl.setWidth(54,forSegment:index) }
         categoryControl.target = self; categoryControl.action = #selector(categorySelected); categoryControl.isHidden = !book.usesPDGNumbering
         pageSummary.font = .systemFont(ofSize: 11); pageSummary.textColor = .secondaryLabelColor
         baseField.widthAnchor.constraint(equalToConstant: 56).isActive = true; baseField.delegate = self
@@ -143,6 +242,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         let split = makeButton("分离末尾页码", #selector(splitPageNumbers))
         let tools = NSStackView(views: [base, TextConversion.button(for:textView), NSView(), makeButton("降一级", #selector(indentText)), makeButton("升一级", #selector(outdentText)), split]); tools.spacing = 6
         textView.setFrameSize(NSSize(width: 780, height: 400)); textView.minSize = NSSize(width: 0, height: 300); textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.delegate = self
         textView.isRichText = false; textView.allowsUndo = true; textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.isAutomaticSpellingCorrectionEnabled = false; textView.isAutomaticQuoteSubstitutionEnabled = false; textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false; textView.isContinuousSpellCheckingEnabled = false
@@ -155,7 +255,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         let scroll = NSScrollView(); scroll.documentView = textView; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.borderType = .bezelBorder
         let hint = CenteredTextField(wrappingLabelWithString: book.usesPDGNumbering ? "每行：标题 ⇥ 页号；行首 TAB 定层级。分区内直接填该类型数字页号；全部类型时非正文加 cov／bok／leg／fow／!／att／bac 前缀。@15 表示物理第 15 页。" : "每行：标题 ⇥ 页码；行首 TAB 定层级。先设置正文基准页再录入；基准页之前用 -1、-2 等，@15 表示物理第 15 页。")
         hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
-        let extra = NSStackView(views: [makeButton("框选识别…", #selector(openRegionOCR)), makeButton("查找与替换…", #selector(findReplace)), makeButton("批量增减页码…", #selector(offsetPages)), CenteredTextField(labelWithString: "多行选中后可用 TAB / Shift+TAB 调整层级")]); extra.spacing = 8
+        let extra = NSStackView(views: [makeButton("查找与替换…", #selector(findReplace)), makeButton("批量增减页码…", #selector(offsetPages))]); extra.spacing = 8
         let stack = NSStackView(views: [categoryControl, pageSummary, tools, extra, scroll, hint]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 8
         for view in [categoryControl, pageSummary, tools, extra, scroll, hint] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
         return stack
@@ -164,11 +264,14 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         activeCategory == 0 ? draft.chapters : draft.chapters.filter { ContentsTextCodec.category($0, book: book) == activeCategory - 1 }
     }
     private func renderText() { textView.string = ContentsTextCodec.text(selectedTextChapters(), book: book, base: basePage, localGroup: activeCategory == 0 ? nil : activeCategory - 1); textView.undoManager?.removeAllActions(); textView.refreshExtent();updateScope() }
-    @discardableResult private func commitText(strict: Bool = false) -> Bool {
+    @discardableResult private func commitText() -> Bool {
         guard textActive else { return true }
         do {
             let previous = draft.chapters
-            let parsed = try ContentsTextCodec.chapters(textView.string, book: book, base: basePage, defaultGroup: activeCategory == 0 ? 5 : activeCategory - 1, allowUnresolved: !strict)
+            let parsed = try BookEditDraft.inheritingPDFIdentities(
+                ContentsTextCodec.chapters(textView.string, book: book, base: basePage,
+                                           defaultGroup: activeCategory == 0 ? 5 : activeCategory - 1, allowUnresolved: true),
+                from: selectedTextChapters())
             if activeCategory == 0 { draft.chapters = parsed }
             else {
                 let slots = draft.chapters.indices.filter { ContentsTextCodec.category(draft.chapters[$0], book: book) == activeCategory - 1 }
@@ -213,7 +316,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         let next = baseField.integerValue
         guard (1...book.pages.count).contains(next) else { message.stringValue = "正文基准页应在 1—\(book.pages.count) 之间。"; message.textColor = .systemRed; baseField.integerValue = basePage; return }
         guard commitText() else { baseField.integerValue = basePage; return }
-        basePage = next; renderText()
+        basePage = next; previewAddressing = PageAddressing(book, base: next); renderText()
     }
     @objc func splitPageNumbers() {
         let updated = ContentsTextCodec.splitTrailingNumbers(textView.string)
@@ -271,7 +374,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
             case "page":
                 let target = field.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
                 do { draft.chapters[field.row].page = target.isEmpty ? 0 : try PageAddressing(book,base:basePage).resolve(target); draft.chapters[field.row].unresolvedTarget = nil }
-                catch { draft.chapters[field.row].page = 0; draft.chapters[field.row].unresolvedTarget = target; message.stringValue = error.localizedDescription; message.textColor = .systemRed }
+                catch { draft.chapters[field.row].page = 0; draft.chapters[field.row].unresolvedTarget = PageAddressing(book, base: basePage).canonical(target, defaultGroup: 5); message.stringValue = error.localizedDescription; message.textColor = .systemRed }
                 reload(field.row)
             case "level": draft.chapters[field.row].level = (Int(field.stringValue) ?? 0) - 1; reload(field.row)
             default: break
@@ -364,7 +467,7 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     }
     @objc func openRegionOCR() {
         guard !busy, regionOCR == nil, !window.hasDocumentDialog else { return }; finishEditing()
-        let controller = RegionOCRController(book: book,page: currentPage,allowCursor: true); regionOCR = controller
+        let controller = RegionOCRController(book: book, page: pagePreview.isHidden ? currentPage : pagePreview.page ?? currentPage, allowCursor: true); regionOCR = controller
         controller.onClosed = { [weak self] in self?.regionOCR = nil }
         controller.onImport = { [weak self] text,atEnd in self?.insertRecognizedContents(text,atEnd: atEnd) }
         controller.show(on: window)
@@ -391,9 +494,8 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
     @objc func saveDraft() {
         if window.hasDocumentDialog { window.bringDocumentDialogForward(); return }
         guard !busy else { return }; finishEditing()
-        guard commitText(strict: true) else { return }
+        guard commitText() else { return }
         do {
-            draft.chapters = try ContentsTextCodec.chapters(ContentsTextCodec.text(draft.chapters,book:book,base:basePage),book:book,base:basePage)
             _ = try draft.validated(for: book); _ = try draft.encodedInfo()
             busy = true; saveButton.isEnabled = false; contentsTable.isEnabled = false
             message.stringValue = "正在校验并保存，请稍候…"

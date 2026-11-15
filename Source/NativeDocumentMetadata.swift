@@ -91,7 +91,7 @@ enum NativeDocumentMetadata {
                 func visit(_ parent:PDFOutline,_ level:Int) {
                     for i in 0..<parent.numberOfChildren {
                         guard let node=parent.child(at:i) else {continue}
-                        let page=node.destination?.page.map {check.index(for:$0)} ?? -1
+                        let page = (node.destination ?? (node.action as? PDFActionGoTo)?.destination)?.page.map { check.index(for: $0) } ?? -1
                         actual.append(.init(title:node.label ?? "",pageIndex:page,level:level,path:nil));visit(node,level+1)
                     }
                 }

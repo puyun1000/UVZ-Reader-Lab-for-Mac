@@ -79,9 +79,13 @@ struct PageAddressing {
         guard lookup["\(item.key.group):\(item.number)"]?.count == 1, item.key.group < Self.prefixes.count else { return "@\(physical)" }
         return (localGroup == item.key.group ? "" : Self.prefixes[item.key.group]) + String(item.number)
     }
+    static func targetToken(group: Int, number: Int) -> String {
+        DATPageTarget(type: group + 1, number: number).token
+    }
+
     func canonical(_ raw: String, defaultGroup: Int) -> String {
         let value = Self.normalized(raw)
         guard let address = try? Self.address(value, defaultGroup: defaultGroup), address.group >= 0, address.group < Self.prefixes.count else { return value }
-        return Self.prefixes[address.group] + String(address.number)
+        return Self.targetToken(group: address.group, number: address.number)
     }
 }

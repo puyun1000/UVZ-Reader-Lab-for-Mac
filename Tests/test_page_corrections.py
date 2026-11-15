@@ -59,7 +59,7 @@ def main():
    assert '章节|01|441|0|6' in text and '失效记录|03|999|0|6' in text
    assert z.read('中文书/BookInfo.dat')==before['中文书/BookInfo.dat'][0]
    assert z.read('中文书/附属.txt')==before['中文书/附属.txt'][0]
-  check=run('--inspect',book);assert [c['page'] for c in check['chapters']]==[2,3]
+  check=run('--inspect',book);assert [c['page'] for c in check['chapters']]==[2,3,0] and check['unresolvedTargets']==[None,None,'999']
   checks.extend(['ZIP页面实际改名与重排，图像字节不变','流式ZIP描述符、CRC、成员时间属性注释、压缩包注释及非路径扩展字段保留','压缩目录同步旧页面目标，并保留失效记录、书籍信息和附属文件','备份逐字节保留原件，默认保持修改日期'])
   # Swapping selected target identities is valid; no page may overwrite another.
   swap=f/'swap.zip';archive(swap,{'000001.pdg':png('red'),'000002.pdg':png('blue')},'甲|01|1|0|6\n乙|02|2|0|6')

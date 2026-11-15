@@ -68,7 +68,7 @@ func navigationNodes(for book: BookArchive, includePages: Bool) -> [NavigationNo
         var levels: [(Int, NavigationNode)] = []
         var paths: [String: NavigationNode] = [:]
         for chapter in book.chapters {
-            let node = NavigationNode(chapter.title, page: chapter.pageIndex < 0 ? nil : chapter.pageIndex)
+            let node = NavigationNode(chapter.title + (chapter.unresolvedDAT == nil ? "" : " · 未定位"), page: chapter.pageIndex < 0 ? nil : chapter.pageIndex)
             var parent: NavigationNode?
             if let path = chapter.path, path.count > 2 {
                 for length in stride(from: path.count - 2, through: 2, by: -2) {

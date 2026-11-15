@@ -482,6 +482,7 @@ if args.count >= 3, args[1] == "--inspect" || args[1] == "--verify" || args[1] =
             "pageCount": book.pages.count, "hasElectronicContents": book.hasElectronicContents,
             "chapters": book.chapters.map { ["title": $0.title, "page": $0.pageIndex + 1, "level": $0.level] },
             "contentsNotice": book.contentsNotice as Any? ?? NSNull(),
+            "unresolvedTargets": book.chapters.map { $0.unresolvedDAT?.token as Any? ?? NSNull() },
             "fallbackNavigation": navigationNodes(for: book, includePages: false).map(\.title),
             "pages": book.pages.enumerated().map { ["index": $0.offset + 1, "file": $0.element.name, "group": $0.element.key.group, "number": $0.element.number] }]
         if args[1] == "--verify" || args[1] == "--sample-verify" {

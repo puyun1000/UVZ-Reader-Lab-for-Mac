@@ -386,7 +386,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
             self.open(updated.url,preserving:saved)
         }
         sheet.onClosed = { [weak self] in self?.editor = nil; self?.updateControls() }
-        NativeDialog.present(sheet.window, on: window); updateControls()
+        sheet.show(on: window); updateControls()
     }
     @objc func repairPages() {
         guard let book,book.canCorrectPages,!window.hasDocumentDialog else { return }
