@@ -3,6 +3,41 @@
   "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
   "versions": [
     {
+      "version": "0.27.0",
+      "status": "original-release",
+      "sourceCommit": "93974592fbe9b0ad3fc6df45d257b74bb9a64cf8",
+      "releaseId": 445845905,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.27.0",
+      "publishedAt": "2026-11-15T06:01:06Z",
+      "releaseNotes": "- 阅读目录按实际页面类型补缺。该类型已有书内书签时，显示作者或用户录入的标题与层级；其他存在的页面类型仍保留入口。\n- 封底作为独立入口，附录、正文等也可单独定位。目录中没有对应的页面类型时不会凭空增加入口。\n- 暂未定位的旧条目仍保留原页面类型与提示；阅读某类页面时，侧栏选中项优先跟随同一类型。\n\n通过 424 项功能检查、79 项原生界面检查和 11 项 Quick Look 控制器检查。\n\n适用于 Apple 芯片 Mac、macOS 14 或更新版本。临时签名，未经 Apple 公证。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.27.0-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "6474cae06855c216b77baf02e2c9f32188d64a4cb00b682f429aedf17be61e16",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.0/UVZReaderLab-0.27.0-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.27.0-macOS-arm64.dmg",
+          "bytes": 12987378,
+          "sha256": "b9e112a9f0e6a1f0e107d77cdfea1d6c436e55f1d81da606a36650faacd3b318",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.0/UVZReaderLab-0.27.0-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.27.0-verification.json",
+          "bytes": 8301,
+          "sha256": "8e6656af12ba438d9ac6ba6de5d32b2faf84c4206b26b47996b52c9d15ee5bbf",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.0/UVZReaderLab-0.27.0-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.27.0.zip",
+          "bytes": 20615668,
+          "sha256": "14380849d3d9f0cafc2a09483c3a9c7015203bd1fcba1e912499502730d6a9ba",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.0/UVZReaderLab-0.27.0.zip"
+        }
+      ]
+    },
+    {
       "version": "0.26.0",
       "status": "original-release",
       "sourceCommit": "1e310a537b558e1c911ec64cccd4ceeb63e57cd9",
