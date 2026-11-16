@@ -1,7 +1,42 @@
 {
-  "auditedOn": "2026-11-15",
+  "auditedOn": "2026-11-16",
   "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
   "versions": [
+    {
+      "version": "0.27.1",
+      "status": "original-release",
+      "sourceCommit": "588bc72fdbb5e496c78d30b25ee27aa22aa092fa",
+      "releaseId": 446863450,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.27.1",
+      "publishedAt": "2026-11-16T10:15:58Z",
+      "releaseNotes": "- 修复在文本模式批量修改多个同页 PDF 书签标题时无法保存的问题。保留各条原有页内位置、缩放或链接动作。\n- 同页同时改名与增删而无法逐一对应时，提示具体物理页。树形中新建的书签使用自身目标，不沿用已删除书签的位置。\n- 修复构建时偶发将通用 DjVu 工具打包为页面替换工具的问题，恢复 DjVu 页面调整后另存。\n\n通过 427 项功能检查、85 项原生界面检查和 11 项 Quick Look 控制器检查。\n\n适用于 Apple 芯片 Mac、macOS 14 或更新版本。临时签名，未经 Apple 公证。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.27.1-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "8901407ebe08c1f7dfa44c17aba7cbac6501d6a6752f17089eab99c05918835c",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.1/UVZReaderLab-0.27.1-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.27.1-macOS-arm64.dmg",
+          "bytes": 12991975,
+          "sha256": "647f92156b9fd5d47d73841e6974615a665e79b922a31fdc30c5a11ae53964b1",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.1/UVZReaderLab-0.27.1-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.27.1-verification.json",
+          "bytes": 2980,
+          "sha256": "f56a78db143db5bcfd7b3c320af8ab710e50fce916f94e1f518b8e36f1f78f51",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.1/UVZReaderLab-0.27.1-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.27.1.zip",
+          "bytes": 20625421,
+          "sha256": "4297c7c2d7f5c1f0568b9a43f14b9a58d44795712520da0c6af0d4a8ff68ddb5",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.1/UVZReaderLab-0.27.1.zip"
+        }
+      ]
+    },
     {
       "version": "0.27.0",
       "status": "original-release",
