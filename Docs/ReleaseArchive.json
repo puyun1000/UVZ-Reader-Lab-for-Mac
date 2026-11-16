@@ -3,6 +3,41 @@
   "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
   "versions": [
     {
+      "version": "0.27.2",
+      "status": "original-release",
+      "sourceCommit": "634a196b8ba0fb037ca6939ec5f97bec372d60e7",
+      "releaseId": 447097564,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.27.2",
+      "publishedAt": "2026-11-16T13:47:43Z",
+      "releaseNotes": "- PDF 文本目录允许同一物理页有多个书签，包括同页的父项与子项。可用多个新目录替换原有页码书签，无须切换到树形模式。\n- 可对应的原书签继续保留原落点。新条目或无法对应到原落点的条目跳到所填页码的整页。\n\n通过 428 项功能检查、86 项原生界面检查和 11 项 Quick Look 控制器检查。\n\n适用于 Apple 芯片 Mac、macOS 14 或更新版本。临时签名，未经 Apple 公证。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.27.2-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "efceeec6c3a940542eecd9cc56408126537295171dc90c7d6b810bdfbe0caa7a",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.2/UVZReaderLab-0.27.2-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.27.2-macOS-arm64.dmg",
+          "bytes": 12990088,
+          "sha256": "d9c4a05cda2e4120254a24627ecb6510ef970d25bf601fe5ef09a12fbc6ea084",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.2/UVZReaderLab-0.27.2-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.27.2-verification.json",
+          "bytes": 3011,
+          "sha256": "469c11d97a30696beee206f7311f98008971be048c4262fa007cb60cc7a22367",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.2/UVZReaderLab-0.27.2-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.27.2.zip",
+          "bytes": 20625541,
+          "sha256": "fe6cf14f685be0ccdb01d9905a291d0fd089afcb40b35a3836d4e5feb5109e91",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.27.2/UVZReaderLab-0.27.2.zip"
+        }
+      ]
+    },
+    {
       "version": "0.27.1",
       "status": "original-release",
       "sourceCommit": "588bc72fdbb5e496c78d30b25ee27aa22aa092fa",
