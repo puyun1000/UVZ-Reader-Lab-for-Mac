@@ -7,6 +7,7 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
     var stage=0,checks:[String]=[],deadline=Date().addingTimeInterval(45)
     let defaults=UserDefaults.standard
     var savedSidebar:Any?
+    var pdfOutlineSaved = false
     init(folder:URL,output:URL){self.folder=folder;self.output=output;super.init();savedSidebar=defaults.object(forKey:"reading.sidebarWidth")}
     func applicationDidFinishLaunching(_ notification:Notification) {
         guard folder.lastPathComponent.hasPrefix("uvz-workflow017-") else {finish("需要临时测试书籍目录。");return}
@@ -89,14 +90,51 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 let item=batch.items[0];item.proposal!.metadata["书名"]="批量核对后书名";item.proposal!.metadata["作者"]="修订作者";item.proposal!.metadata["出版日期"]="2024.08";item.proposal!.metadata["自定义"]="核对值保留"
                 item.customName="批量保存与改名";item.included=true;item.reviewed=true
                 batch.preserveDates.state = .on;batch.applySelected();stage=3
-            default:
+            case 3:
                 guard let batch,!batch.isApplying,let item=batch.items.first else {tick();return}
                 try check(item.outcome == "已完成","批量界面完成保存与重命名")
                 let reopened=try BookArchive(url:item.url)
                 try check(item.url.deletingPathExtension().lastPathComponent=="批量保存与改名","批量界面写回规范名称")
                 try check(reopened.metadata == item.proposal!.metadata,"批量界面将全部核对信息写回书籍")
                 try check(reopened.chapters.map(\.title)==["自定前言","原目录"],"批量信息修改保留原目录")
-                batch.window.close();finish();return
+                batch.window.close()
+                let pdf = try BookArchive(url: folder.appendingPathComponent("pdf/same-page.pdf"))
+                let controller = BookEditor(book: pdf)
+                editor = controller; controller.show(on: reader.window)
+                let find = ContentsFindWindow(text: controller.textView)
+                find.find.stringValue = "Original "; find.replacement.stringValue = "Edited "; find.replaceAll()
+                try check(controller.textView.string.contains("Edited first") && controller.textView.string.contains("Edited second"),
+                          "全部替换修改指向同一 PDF 物理页的两个标题")
+                controller.showStructureTab()
+                try check(!controller.isTextMode && controller.draft.chapters.map(\.pdfOutlineIndex) == [0, 1],
+                          "两条标题一起修改后可切换树形，仍对应各自原书签")
+                controller.showContentsTab()
+                controller.onSaved = { [weak self] _ in self?.pdfOutlineSaved = true }
+                controller.saveDraft()
+                stage = 4
+            case 4:
+                guard pdfOutlineSaved else {tick();return}
+                let url = folder.appendingPathComponent("pdf/same-page.pdf")
+                let pdf = try BookArchive(url: url)
+                try check(pdf.chapters.map(\.title) == ["Edited first", "Edited second"],
+                          "从文本模式保存后，两条改名均写入 PDF")
+                try FileManager.default.copyItem(at: url, to: folder.appendingPathComponent("pdf/text-saved.pdf"))
+                let controller = BookEditor(book: pdf)
+                editor = controller; controller.show(on: reader.window); controller.showStructureTab()
+                controller.contentsTable.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+                controller.removeChapter()
+                controller.contentsTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+                controller.addChapter()
+                pdfOutlineSaved = false
+                controller.onSaved = { [weak self] _ in self?.pdfOutlineSaved = true }
+                controller.saveDraft()
+                stage = 5
+            default:
+                guard pdfOutlineSaved else {tick();return}
+                let pdf = try BookArchive(url: folder.appendingPathComponent("pdf/same-page.pdf"))
+                try check(pdf.chapters.map(\.title) == ["Edited first","新目录"],
+                          "树形模式可删除并在同页新建书签")
+                finish();return
             }
             tick()
         }catch{finish(error.localizedDescription)}

@@ -496,14 +496,16 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         guard !busy else { return }; finishEditing()
         guard commitText() else { return }
         do {
-            _ = try draft.validated(for: book); _ = try draft.encodedInfo()
+            // Text rows have been reconciled by commitText. Tree rows carry
+            // their own identities; newly inserted rows must stay new.
+            _ = try draft.validated(for: book, inferPDFIdentities: false); _ = try draft.encodedInfo()
             busy = true; saveButton.isEnabled = false; contentsTable.isEnabled = false
             message.stringValue = "正在校验并保存，请稍候…"
             let savingDraft = draft, savingBook = book, backup = AppSettings().backups, validate = beforeSave
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 let result = Result {
                     try validate?()
-                    return try savingBook.saveEdits(savingDraft, backup: backup, preserveDates: AppSettings().preserveFileDates, writeInfo: false)
+                    return try savingBook.saveEdits(savingDraft, backup: backup, preserveDates: AppSettings().preserveFileDates, writeInfo: false, inferPDFIdentities: false)
                 }
                 DispatchQueue.main.async {
                     guard let self else { return }; self.busy = false; self.saveButton.isEnabled = true; self.contentsTable.isEnabled = true

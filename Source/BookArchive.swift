@@ -465,11 +465,11 @@ struct BookEditDraft: Codable {
         chapters = book.chapters.map { Chapter(title: $0.title, page: $0.pageIndex + 1, level: $0.level, unresolvedTarget: $0.unresolvedDAT?.token, pdfOutlineIndex: $0.pdfOutlineIndex) }
         metadata = book.metadata
     }
-    func validated(for book: BookArchive) throws -> [BookChapter] {
+    func validated(for book: BookArchive, inferPDFIdentities: Bool = true) throws -> [BookChapter] {
         guard chapters.count <= 50_000 else { throw ReaderFailure("目录项不能超过 50000 条。") }
         var previous = -1, counters = [Int](repeating: 0, count: 33)
         let original = BookEditDraft(book: book).chapters
-        let rows = try Self.inheritingPDFIdentities(chapters, from: original)
+        let rows = inferPDFIdentities ? try Self.inheritingPDFIdentities(chapters, from: original) : chapters
         var retained = book.chapters.compactMap(\.unresolvedDAT).reduce(into: [String: [DATPageTarget]]()) { $0[$1.token, default: []].append($1) }
         var usedPDFIdentities = Set<Int>()
         return try rows.map { row in
@@ -511,29 +511,34 @@ struct BookEditDraft: Codable {
         }
     }
 
-    // Text editing represents only title, level and target. Keep an existing
-    // PDF item attached when its identity can be determined from that text.
+    // The text contains no PDF coordinates. Keep unchanged titles attached
+    // first, then match renamed rows in their relative order on each page.
+    // When unmatched rows were both added and removed, require explicit edits.
     static func inheritingPDFIdentities(_ edited: [Chapter], from original: [Chapter]) throws -> [Chapter] {
-        let existing = original.filter { $0.pdfOutlineIndex != nil }
+        var used = Set(edited.compactMap(\.pdfOutlineIndex))
+        let existing = original.filter { item in item.pdfOutlineIndex.map { !used.contains($0) } ?? false }
         guard !existing.isEmpty else { return edited }
         var rows = edited
-        var used = Set(edited.compactMap(\.pdfOutlineIndex))
-        var byTitleAndPage = Dictionary(grouping: existing.reversed(), by: OutlineKey.init)
-        for i in rows.indices where rows[i].pdfOutlineIndex == nil {
-            let key = OutlineKey(rows[i])
-            while let item = byTitleAndPage[key]?.popLast(), let identity = item.pdfOutlineIndex {
-                if used.insert(identity).inserted { rows[i].pdfOutlineIndex = identity; break }
+        let oldByKey = Dictionary(grouping: existing, by: OutlineKey.init)
+        let anonymous = edited.indices.filter { edited[$0].pdfOutlineIndex == nil && edited[$0].unresolvedTarget == nil }
+        let newByKey = Dictionary(grouping: anonymous) { OutlineKey(edited[$0]) }
+        for (key, indices) in newByKey {
+            guard let old = oldByKey[key], old.count == indices.count else { continue }
+            for (index, item) in zip(indices, old) {
+                rows[index].pdfOutlineIndex = item.pdfOutlineIndex
+                used.insert(item.pdfOutlineIndex!)
             }
         }
         let remaining = existing.filter { !used.contains($0.pdfOutlineIndex!) }
         let oldByPage = Dictionary(grouping: remaining, by: \.page)
-        let newByPage = Dictionary(grouping: rows.indices.filter { rows[$0].pdfOutlineIndex == nil }) { rows[$0].page }
-        for (page, indices) in newByPage {
-            guard let old = oldByPage[page] else { continue }
-            guard old.count == 1, indices.count == 1 else {
-                throw ReaderFailure("同一页面的多个 PDF 目录项同时改动，无法确定应保留哪一个原目标。请在树形模式分别修改。")
+        let newByPage = Dictionary(grouping: anonymous.filter { rows[$0].pdfOutlineIndex == nil }) { rows[$0].page }
+        for page in newByPage.keys.sorted() {
+            guard let old = oldByPage[page], let indices = newByPage[page] else { continue }
+            guard old.count == indices.count else {
+                let location = page > 0 ? "物理第 \(page) 页" : "无页码目录"
+                throw ReaderFailure("PDF \(location)有 \(old.count) 个原书签和 \(indices.count) 个编辑后的书签无法对应。请先撤销该处增删，再切换到树形模式修改，以保留原有跳转位置。")
             }
-            rows[indices[0]].pdfOutlineIndex = old[0].pdfOutlineIndex
+            for (index, item) in zip(indices, old) { rows[index].pdfOutlineIndex = item.pdfOutlineIndex }
         }
         return rows
     }
@@ -556,14 +561,14 @@ extension BookArchive {
     var isZip: Bool { loose == nil }
     var usesPDGNumbering: Bool { loose == nil || loose?.kind == "folder" || loose?.kind == "pdg" }
     /// Saves both DAT files as one ZIP replacement, retaining compressed page bytes unchanged.
-    @discardableResult func saveEdits(_ draft: BookEditDraft, backup: Bool = false, preserveDates: Bool = true, writeContents: Bool = true, writeInfo: Bool = true) throws -> [URL] {
+    @discardableResult func saveEdits(_ draft: BookEditDraft, backup: Bool = false, preserveDates: Bool = true, writeContents: Bool = true, writeInfo: Bool = true, inferPDFIdentities: Bool = true) throws -> [URL] {
         guard !isPDZ else{throw ReaderFailure("PDZ 以只读方式打开，可在转换工作台另存为 PDF。")}
         guard !writeContents || !hasUnreadableContents else {
             throw ReaderFailure("原目录含无法解析的记录，保存会丢失这些内容。请先修复原目录。")
         }
         if storesNativeInformation,let loose {
             if !writeContents && !writeInfo {return []}
-            let chapters=writeContents ? try draft.validated(for:self) : nil
+            let chapters=writeContents ? try draft.validated(for:self, inferPDFIdentities: inferPDFIdentities) : nil
             if writeInfo {_ = try draft.encodedInfo()}
             return try saveNativeInformation(writeInfo ? draft.metadata : metadata,to:url,source:loose,backup:backup,preserveDates:preserveDates,contents:chapters).backups
         }

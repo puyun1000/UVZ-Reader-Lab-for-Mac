@@ -23,6 +23,9 @@ make -j4
 mkdir -p "$LAB_DEST"
 cp tools/ddjvu tools/djvused tools/c44 tools/cjb2 tools/djvumake "$LAB_DEST/"
 cp "$LAB_VENDOR/replace-pages.cpp" tools/djvm.cpp
+# Both targets were built above for upstream djvm. Force a fresh link after
+# replacing its source, even on make versions with second-resolution mtimes.
+rm tools/djvm.o tools/djvm
 make -C tools djvm
 cp tools/djvm "$LAB_DEST/lab-djvu-replace"
 print -r -- "$LAB_FINGERPRINT" > "$LAB_DEST/build-id"

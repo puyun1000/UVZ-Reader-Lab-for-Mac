@@ -73,5 +73,42 @@ with tempfile.TemporaryDirectory(prefix='uvz-native-contents-') as td:
  assert list(outline['/First']['/A']['/D'][1:])==['/FitH',388]
  assert outline['/Next']['/A']['/URI']=='https://example.com/reference'
  checks.append('PDF title-only editing preserves XYZ, FitH, external action and PageLabels')
+ # Same-page entries have distinct targets, so merely checking page numbers
+ # after a bulk rename cannot detect swapped or flattened PDF destinations.
+ path=f/'same-page.pdf'; writer=PdfWriter()
+ for _ in range(3): writer.add_blank_page(width=300,height=450)
+ writer.add_outline_item('Old XYZ',1,fit=Fit.xyz(left=12,top=422,zoom=1.75))
+ writer.add_outline_item('Anchor',1,fit=Fit.fit_vertically(left=33))
+ writer.add_outline_item('Old FitH',1,fit=Fit.fit_horizontally(top=301))
+ for key in ['first','second']:
+  node=writer.add_outline_item('Old '+key,None)
+  node.get_object()[NameObject('/A')]=DictionaryObject({NameObject('/S'):NameObject('/URI'),NameObject('/URI'):TextStringObject('https://example.com/'+key)})
+ with path.open('wb') as stream:writer.write(stream)
+ contents=f/'contents.txt'
+ exported=subprocess.check_output([str(exe),'--export-contents-text',str(path)],text=True)
+ contents.write_text(exported.replace('Old ','New '),encoding='utf8')
+ parsed=run('--parse-contents-text',path,contents)
+ plan.write_text(json.dumps(dict(chapters=parsed['chapters'],metadata={})))
+ run('--apply-draft',path,plan,'--contents-only')
+ def outline_rows(pdf):
+  item=PdfReader(pdf).trailer['/Root']['/Outlines']['/First']
+  while item:
+   dest=item.get('/A',{}).get('/D',item.get('/Dest'))
+   yield str(item['/Title']), list(dest[1:]) if dest else str(item.get('/A',{}).get('/URI',''))
+   item=item['/Next'] if '/Next' in item else None
+ expected=[('New XYZ',['/XYZ',12,422,1.75]),('Anchor',['/FitV',33]),('New FitH',['/FitH',301]),
+           ('New first','https://example.com/first'),('New second','https://example.com/second')]
+ assert list(outline_rows(path))==expected
+ checks.append('PDF bulk rename preserves same-page XYZ, FitV, FitH and no-page URI targets individually')
+ reorder=[parsed['chapters'][i] for i in [2,1,0,3,4]]+[dict(title='New independent bookmark',page=2,level=0)]
+ plan.write_text(json.dumps(dict(chapters=reorder,metadata={})))
+ run('--apply-draft',path,plan,'--contents-only')
+ assert list(outline_rows(path))==[expected[i] for i in [2,1,0,3,4]]+[('New independent bookmark',['/Fit'])]
+ checks.append('PDF unchanged titles carry their original destinations when moved; an added same-page item gets its own Fit target')
+ prior=path.read_bytes()
+ ambiguous=[dict(title='Only new title',page=2,level=0)]+reorder[3:5]
+ plan.write_text(json.dumps(dict(chapters=ambiguous,metadata={})))
+ assert '物理第 2 页' in run('--apply-draft',path,plan,'--contents-only',ok=False) and path.read_bytes()==prior
+ checks.append('PDF ambiguous same-page rename plus deletion identifies the page and leaves the original bytes intact')
  assert not list(f.glob('.uvz-*'));checks.append('all native directory transaction scratch files removed')
 print(json.dumps(dict(passed=len(checks),checks=checks),ensure_ascii=False,indent=2))
