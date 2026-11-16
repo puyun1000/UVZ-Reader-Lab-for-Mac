@@ -1,4 +1,4 @@
-# UVZ Reader Lab 0.27.1
+# UVZ Reader Lab 0.27.2
 
 独立实现的原生macOS扫描图书阅读与整理应用。支持UVZ／ZIP、PDZ、EPUB、PDG及PDG文件夹、PDF、DjVu和多页TIFF。适用于Apple芯片Mac、macOS14及以上；当前使用临时签名，未经Apple公证。
 
@@ -26,7 +26,7 @@
 
 使用macOS自带命令行开发工具运行 `./build.sh`，输出应用包及应用ZIP；运行时无需Python或Homebrew。DjVuLibre许可与对应源码随包提供。
 
-`Tests/`包含归档与解码、格式、目录、信息保存、页面地址、编码纠正、书目解析及批量改名测试。`--naming-model-tests`验证字段推荐和格式管理；`QuickLook/Tests/PreviewControllerTests.swift`验证多页预览控制器。发布验证结果见[验证摘要](Docs/Validation-0.27.1.md)。
+`Tests/`包含归档与解码、格式、目录、信息保存、页面地址、编码纠正、书目解析及批量改名测试。`--naming-model-tests`验证字段推荐和格式管理；`QuickLook/Tests/PreviewControllerTests.swift`验证多页预览控制器。发布验证结果见[验证摘要](Docs/Validation-0.27.2.md)。
 
 图书信息推荐依赖本机OCR和规则，不能替代人工书目核对。单一冲突来源、书法竖排、模糊扫描、多个丛书／ISBN及多卷合订仍可能无法准确分解。批量执行逐本完成，尚不提供执行后整批撤销。
 

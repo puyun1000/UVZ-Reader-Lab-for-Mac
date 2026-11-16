@@ -105,10 +105,26 @@ with tempfile.TemporaryDirectory(prefix='uvz-native-contents-') as td:
  run('--apply-draft',path,plan,'--contents-only')
  assert list(outline_rows(path))==[expected[i] for i in [2,1,0,3,4]]+[('New independent bookmark',['/Fit'])]
  checks.append('PDF unchanged titles carry their original destinations when moved; an added same-page item gets its own Fit target')
- prior=path.read_bytes()
- ambiguous=[dict(title='Only new title',page=2,level=0)]+reorder[3:5]
- plan.write_text(json.dumps(dict(chapters=ambiguous,metadata={})))
- assert '物理第 2 页' in run('--apply-draft',path,plan,'--contents-only',ok=False) and path.read_bytes()==prior
- checks.append('PDF ambiguous same-page rename plus deletion identifies the page and leaves the original bytes intact')
+ # Replacing old entries with two new, nested labels must save even if the
+ # editor cannot identify which original viewport either new label should use.
+ contents.write_text('New parent\t2\n\tNew child\t2\nNew first\nNew second',encoding='utf8')
+ parsed=run('--parse-contents-text',path,contents)
+ plan.write_text(json.dumps(dict(chapters=parsed['chapters'],metadata={})))
+ run('--apply-draft',path,plan,'--contents-only')
+ book=PdfReader(path);parent,child=book.outline[0],book.outline[1][0]
+ assert [(item.title,book.get_destination_page_number(item),list(item.dest_array[1:])) for item in [parent,child]]==[
+     ('New parent',1,['/Fit']),('New child',1,['/Fit'])]
+ assert list(outline_rows(path))==[('New parent',['/Fit']),*expected[3:]]
+ checks.append('PDF replacing older same-page items with a parent and child saves the hierarchy and gives each new item a Fit target')
+ # If a same-page child repeats the parent's title, keep the parent's original
+ # destination using its level instead of cloning it to the new child.
+ path=f/'same-title.pdf';writer=PdfWriter();writer.add_blank_page(width=300,height=450)
+ writer.add_outline_item('Shared title',0,fit=Fit.xyz(left=12,top=422,zoom=1.75))
+ with path.open('wb') as stream:writer.write(stream)
+ plan.write_text(json.dumps(dict(chapters=[dict(title='Shared title',page=1,level=0),dict(title='Shared title',page=1,level=1)],metadata={})))
+ run('--apply-draft',path,plan,'--contents-only')
+ book=PdfReader(path);parent,child=book.outline[0],book.outline[1][0]
+ assert [list(item.dest_array[1:]) for item in [parent,child]]==[['/XYZ',12,422,1.75],['/Fit']]
+ checks.append('PDF same-title same-page child is new while its matching parent retains XYZ')
  assert not list(f.glob('.uvz-*'));checks.append('all native directory transaction scratch files removed')
 print(json.dumps(dict(passed=len(checks),checks=checks),ensure_ascii=False,indent=2))

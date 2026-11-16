@@ -129,11 +129,25 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 controller.onSaved = { [weak self] _ in self?.pdfOutlineSaved = true }
                 controller.saveDraft()
                 stage = 5
-            default:
+            case 5:
                 guard pdfOutlineSaved else {tick();return}
                 let pdf = try BookArchive(url: folder.appendingPathComponent("pdf/same-page.pdf"))
                 try check(pdf.chapters.map(\.title) == ["Edited first","新目录"],
                           "树形模式可删除并在同页新建书签")
+                let book = try BookArchive(url: folder.appendingPathComponent("pdf/parent-child.pdf"))
+                let controller = BookEditor(book: book)
+                editor = controller; controller.show(on: reader.window)
+                controller.textView.string = "新父项\t1\n\t新子项\t1"
+                pdfOutlineSaved = false
+                controller.onSaved = { [weak self] _ in self?.pdfOutlineSaved = true }
+                controller.saveDraft()
+                stage = 6
+            default:
+                guard pdfOutlineSaved else {tick();return}
+                let book = try BookArchive(url: folder.appendingPathComponent("pdf/parent-child.pdf"))
+                try check(book.chapters.map(\.title) == ["新父项","新子项"] &&
+                          book.chapters.map(\.level) == [0,1] && book.chapters.map(\.pageIndex) == [0,0],
+                          "文本模式将一个旧书签换为同页父子项，可直接保存且层级不变")
                 finish();return
             }
             tick()

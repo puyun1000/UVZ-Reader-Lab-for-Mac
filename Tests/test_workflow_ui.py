@@ -16,6 +16,9 @@ with tempfile.TemporaryDirectory(prefix='uvz-workflow017-') as td:
  writer.add_outline_item('Original first',0,fit=Fit.xyz(left=22,top=411,zoom=1.5))
  writer.add_outline_item('Original second',0,fit=Fit.fit_horizontally(top=299))
  with (f/'pdf/same-page.pdf').open('wb') as stream:writer.write(stream)
+ writer=PdfWriter();writer.add_blank_page(width=300,height=450)
+ writer.add_outline_item('1',0,fit=Fit.xyz(left=22,top=411,zoom=1.5))
+ with (f/'pdf/parent-child.pdf').open('wb') as stream:writer.write(stream)
  out=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else f/'report.json'
  p=subprocess.run([str(exe),'--workflow-ui-test',str(f),str(out)],capture_output=True,text=True,timeout=60)
  assert p.returncode==0,(p.stdout,p.stderr,out.read_text() if out.exists() else '')

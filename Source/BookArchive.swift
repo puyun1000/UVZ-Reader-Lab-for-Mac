@@ -469,7 +469,7 @@ struct BookEditDraft: Codable {
         guard chapters.count <= 50_000 else { throw ReaderFailure("目录项不能超过 50000 条。") }
         var previous = -1, counters = [Int](repeating: 0, count: 33)
         let original = BookEditDraft(book: book).chapters
-        let rows = inferPDFIdentities ? try Self.inheritingPDFIdentities(chapters, from: original) : chapters
+        let rows = inferPDFIdentities ? Self.inheritingPDFIdentities(chapters, from: original) : chapters
         var retained = book.chapters.compactMap(\.unresolvedDAT).reduce(into: [String: [DATPageTarget]]()) { $0[$1.token, default: []].append($1) }
         var usedPDFIdentities = Set<Int>()
         return try rows.map { row in
@@ -511,10 +511,10 @@ struct BookEditDraft: Codable {
         }
     }
 
-    // The text contains no PDF coordinates. Keep unchanged titles attached
-    // first, then match renamed rows in their relative order on each page.
-    // When unmatched rows were both added and removed, require explicit edits.
-    static func inheritingPDFIdentities(_ edited: [Chapter], from original: [Chapter]) throws -> [Chapter] {
+    // Text carries page and level, but not PDF coordinates. Match existing
+    // targets where there is a correspondence; leave unmatched rows with a
+    // whole-page target rather than forbidding changes to a page's outline.
+    static func inheritingPDFIdentities(_ edited: [Chapter], from original: [Chapter]) -> [Chapter] {
         var used = Set(edited.compactMap(\.pdfOutlineIndex))
         let existing = original.filter { item in item.pdfOutlineIndex.map { !used.contains($0) } ?? false }
         guard !existing.isEmpty else { return edited }
@@ -522,23 +522,33 @@ struct BookEditDraft: Codable {
         let oldByKey = Dictionary(grouping: existing, by: OutlineKey.init)
         let anonymous = edited.indices.filter { edited[$0].pdfOutlineIndex == nil && edited[$0].unresolvedTarget == nil }
         let newByKey = Dictionary(grouping: anonymous) { OutlineKey(edited[$0]) }
-        for (key, indices) in newByKey {
-            guard let old = oldByKey[key], old.count == indices.count else { continue }
+        func attach(_ indices: [Int], to old: [Chapter]) {
             for (index, item) in zip(indices, old) {
-                rows[index].pdfOutlineIndex = item.pdfOutlineIndex
-                used.insert(item.pdfOutlineIndex!)
+                guard let id = item.pdfOutlineIndex else { continue }
+                rows[index].pdfOutlineIndex = id
+                used.insert(id)
+            }
+        }
+        for (key, indices) in newByKey {
+            guard let old = oldByKey[key] else { continue }
+            if old.count == indices.count {
+                attach(indices, to: old)
+            } else {
+                // An added child can share both the parent's title and page.
+                // Use the existing level to distinguish unique exact matches.
+                let oldByLevel = Dictionary(grouping: old, by: \.level)
+                let newByLevel = Dictionary(grouping: indices) { edited[$0].level }
+                for (level, matches) in newByLevel where matches.count == 1 {
+                    if let originals = oldByLevel[level], originals.count == 1 { attach(matches, to: originals) }
+                }
             }
         }
         let remaining = existing.filter { !used.contains($0.pdfOutlineIndex!) }
         let oldByPage = Dictionary(grouping: remaining, by: \.page)
         let newByPage = Dictionary(grouping: anonymous.filter { rows[$0].pdfOutlineIndex == nil }) { rows[$0].page }
-        for page in newByPage.keys.sorted() {
-            guard let old = oldByPage[page], let indices = newByPage[page] else { continue }
-            guard old.count == indices.count else {
-                let location = page > 0 ? "物理第 \(page) 页" : "无页码目录"
-                throw ReaderFailure("PDF \(location)有 \(old.count) 个原书签和 \(indices.count) 个编辑后的书签无法对应。请先撤销该处增删，再切换到树形模式修改，以保留原有跳转位置。")
-            }
-            for (index, item) in zip(indices, old) { rows[index].pdfOutlineIndex = item.pdfOutlineIndex }
+        for (page, indices) in newByPage {
+            guard let old = oldByPage[page], old.count == indices.count else { continue }
+            attach(indices, to: old)
         }
         return rows
     }

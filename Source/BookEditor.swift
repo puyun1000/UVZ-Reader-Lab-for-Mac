@@ -268,8 +268,8 @@ final class BookEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate, NS
         guard textActive else { return true }
         do {
             let previous = draft.chapters
-            let parsed = try BookEditDraft.inheritingPDFIdentities(
-                ContentsTextCodec.chapters(textView.string, book: book, base: basePage,
+            let parsed = BookEditDraft.inheritingPDFIdentities(
+                try ContentsTextCodec.chapters(textView.string, book: book, base: basePage,
                                            defaultGroup: activeCategory == 0 ? 5 : activeCategory - 1, allowUnresolved: true),
                 from: selectedTextChapters())
             if activeCategory == 0 { draft.chapters = parsed }
