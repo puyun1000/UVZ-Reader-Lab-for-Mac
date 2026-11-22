@@ -172,11 +172,7 @@ private final class BatchRowCheckbox: NSButton {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-private final class NamingFormDocument: NSView {
-    override var isFlipped: Bool { true }
-}
-
-final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSTextViewDelegate {
     let recognitionControls = RecognitionControls()
     let window = ChineseWindow(contentRect:NSRect(x:0,y:0,width:1380,height:940),styleMask:[.titled,.closable,.resizable,.miniaturizable],backing:.buffered,defer:false)
     let table = BatchBookTable(), evidenceTable = NSTableView()
@@ -191,11 +187,13 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     private var namingStyles = NamingPreferences.styles()
     private(set) var templateWindow: NamingTemplateWindow?
     let finalName = CenteredTextField()
-    let fields = BookMetadata.fields.map { _ in CenteredTextField() }
-    private let fieldKeys = BookMetadata.fields
-    private let fieldStates = BookMetadata.fields.map { _ in CenteredTextField(labelWithString:"") }
+    private static let longKeys: Set<String> = ["参考文献格式", "摘要"]
+    let fields = BookMetadata.fields.filter { !BatchNamingWindow.longKeys.contains($0) }.map { _ in CenteredTextField() }
+    private let fieldKeys = BookMetadata.fields.filter { !BatchNamingWindow.longKeys.contains($0) }
+    private let citationView = ChineseTextView(), abstractView = ChineseTextView()
+    private let proofEntry = NamingProofEntry()
+    private var listExpanded = false
     private let folderLabel = CenteredTextField(labelWithString:"尚未选择文件夹")
-    private let formatHint = CenteredTextField(wrappingLabelWithString:"")
     private let note = CenteredTextField(wrappingLabelWithString:"选择文件夹后逐本分析。候选建议不会自动改名，需勾选并应用。")
     private let scanButton = NSButton(title:"分析未完成项",target:nil,action:nil)
     private let stopButton = NSButton(title:"停止",target:nil,action:nil)
@@ -204,7 +202,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     private let originalName = CenteredTextField(wrappingLabelWithString: "")
     private let nameExtension = CenteredTextField(labelWithString: "")
     private let sources = NSPopUpButton()
-    private let detailScroll = NSScrollView()
+    private weak var detailScroll: FormScrollView?
     private let split = NSSplitView()
     private let comparisonSplit = NSSplitView()
     let vectorPDF = NSButton(checkboxWithTitle: "矢量PDF", target: nil, action: nil)
@@ -280,19 +278,15 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         let listHint = CenteredTextField(labelWithString: "拖出选框可勾选多本")
         listHint.textColor = .secondaryLabelColor
         listHint.font = .systemFont(ofSize: 11)
-        let formatRow = NSStackView(views: [listTitle, listHint, NSView(), CenteredTextField(labelWithString: "批次命名格式"), uniformStyle, button("管理…", #selector(manageTemplates))])
+        let formatRow = NamingFormLayout.row([listTitle, listHint, NSView(), button("展开书单", #selector(toggleBookList))])
         formatRow.spacing = 6
         let books = verticalStack([formatRow, list], spacing: 6)
         list.setContentHuggingPriority(.defaultLow, for: .vertical)
 
-        for (key,field) in zip(fieldKeys,fields) { field.identifier = .init(key); field.delegate = self }
-        let grid = NSGridView(views: fieldKeys.indices.map { [CenteredTextField(labelWithString:BookMetadata.label(fieldKeys[$0])),fields[$0],fieldStates[$0]] })
-        grid.rowSpacing = 3
-        grid.columnSpacing = 7
-        grid.column(at: 0).width = 90
-        grid.column(at: 2).width = 70
-        for state in fieldStates { state.font = .systemFont(ofSize: 11); state.textColor = .secondaryLabelColor }
-        for index in fieldKeys.indices { grid.row(at:index).height = 23 }
+        for (key, field) in zip(fieldKeys, fields) {
+            field.identifier = .init(key)
+            field.delegate = self
+        }
 
         reviewed.title = "已人工核对"
         reviewed.target = self
@@ -310,9 +304,6 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         detailNote.font = .systemFont(ofSize: 11)
         detailNote.textColor = .secondaryLabelColor
         detailNote.maximumNumberOfLines = 3
-        formatHint.font = .systemFont(ofSize: 11)
-        formatHint.textColor = .secondaryLabelColor
-        formatHint.lineBreakMode = .byTruncatingTail
         finalName.delegate = self
         finalName.identifier = .init("final-name")
         finalName.placeholderString = "最终名称"
@@ -327,15 +318,16 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         evidence.hasVerticalScroller = true
         evidence.borderType = .bezelBorder
         evidence.heightAnchor.constraint(equalToConstant: 108).isActive = true
-        sources.addItems(withTitles: ["所有字段"] + fieldKeys)
+        sources.addItems(withTitles: ["所有字段"] + BookMetadata.fields.map(BookMetadata.label))
         sources.target = self
         sources.action = #selector(sourceFilterChanged)
         let evidenceTools = NSStackView(views: [sources, NSView(), button("采用来源",#selector(adoptEvidence)),button("识别原文…",#selector(showSources))])
         evidenceTools.spacing = 5
-        let guide = CenteredTextField(labelWithString: "作者著录：朝代及国名用圆括号，同类用“，”，不同著作方式用“；”。")
-        guide.font = .systemFont(ofSize: 11)
-        guide.textColor = .secondaryLabelColor
-        let detail = verticalStack([originalName, grid, guide, detailNote, evidenceTools, evidence], spacing: 7)
+        let groups = NamingFormLayout.groups(makeField, expanded: false, citationAction:
+            NamingFormLayout.row([button("按当前信息生成引文", #selector(generateCitation)), NSView()]))
+        let sourceSection = NamingDisclosure("比对来源",
+            body: NamingFormLayout.column([detailNote, evidenceTools, evidence]), expanded: false)
+        let detail = NamingFormLayout.column([originalName] + groups + [NamingFormLayout.line(), sourceSection], spacing: 11)
         vectorPDF.target = self
         vectorPDF.action = #selector(vectorChanged)
         resetVector.target = self
@@ -347,31 +339,27 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         precisionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let precisionRow = NSStackView(views: [vectorPDF, precisionLabel, NSView(), resetVector])
         precisionRow.spacing = 8
-        let document = NamingFormDocument()
-        detail.translatesAutoresizingMaskIntoConstraints = false
-        document.addSubview(detail)
-        NSLayoutConstraint.activate([
-            detail.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            detail.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            detail.topAnchor.constraint(equalTo: document.topAnchor),
-            detail.bottomAnchor.constraint(equalTo: document.bottomAnchor)
-        ])
-        detailScroll.documentView = document
-        detailScroll.hasVerticalScroller = true
-        detailScroll.autohidesScrollers = true
-        document.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            document.widthAnchor.constraint(equalTo: detailScroll.contentView.widthAnchor),
-            document.leadingAnchor.constraint(equalTo: detailScroll.contentView.leadingAnchor),
-            document.topAnchor.constraint(equalTo: detailScroll.contentView.topAnchor)
-        ])
-
-        let information = verticalStack([detailHeading, formatHint, precisionRow, nameRow, detailScroll], spacing: 6, leadingInset: 10)
+        let detailScroll = FormScrollView(detail)
+        detailScroll.identifier = .init("book-information-form")
+        self.detailScroll = detailScroll
         detailScroll.setContentHuggingPriority(.defaultLow, for: .vertical)
+        let naming = NamingFormLayout.column([
+            NamingFormLayout.row([NamingFormLayout.heading("命名格式"), NSView(), button("管理格式…", #selector(manageTemplates))]),
+            uniformStyle, precisionRow, nameRow
+        ])
+        naming.identifier = .init("book-naming-format")
+        let information = verticalStack([detailHeading, detailScroll, NamingFormLayout.line(), naming], spacing: 8, leadingInset: 10)
+        proofEntry.read = { [weak self] key in self?.selectedItem?.proposal?.metadata[key] ?? "" }
+        proofEntry.write = { [weak self] key, value in self?.updateField(key, value: value, reflectEditor: true) }
+        let original = NamingFormLayout.column([
+            NamingFormLayout.heading("原页核对"), bookPreview, proofEntry
+        ])
+        bookPreview.titleVisible = false
+        bookPreview.setContentHuggingPriority(.defaultLow, for: .vertical)
         comparisonSplit.isVertical = true
         comparisonSplit.dividerStyle = .thin
         comparisonSplit.delegate = self
-        comparisonSplit.addArrangedSubview(bookPreview)
+        comparisonSplit.addArrangedSubview(original)
         comparisonSplit.addArrangedSubview(information)
         comparisonSplit.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         comparisonSplit.setHoldingPriority(.defaultLow, forSubviewAt: 1)
@@ -585,7 +573,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         selectedIndex = next
         sources.selectItem(at: 0)
         sourceField = nil
-        detailScroll.contentView.scroll(to: .zero)
+        if let detailScroll { detailScroll.contentView.scroll(to: .zero); detailScroll.reflectScrolledClipView(detailScroll.contentView) }
         loadDetails()
     }
     private func loadDetails() {
@@ -600,9 +588,20 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         let ext = item?.url.pathExtension ?? ""
         nameExtension.stringValue = isFolder || ext.isEmpty ? "" : "." + ext
         supplementButton.isEnabled = item != nil && !isAnalysing && !isApplying && !bookmarkFlowActive
-        for (index,key) in fieldKeys.enumerated() { fields[index].stringValue = proposal?.metadata[key] ?? ""; fields[index].isEnabled = proposal != nil && item?.outcome == nil && !isApplying; fieldStates[index].stringValue = proposal?.fieldStatus(key) ?? "" }
+        let editable = proposal != nil && item?.outcome == nil && !isApplying
+        for (index, key) in fieldKeys.enumerated() {
+            fields[index].stringValue = proposal?.metadata[key] ?? ""
+            fields[index].isEnabled = editable
+            fields[index].toolTip = proposal?.fieldStatus(key)
+        }
+        citationView.string = proposal?.metadata["参考文献格式"] ?? ""
+        abstractView.string = proposal?.metadata["摘要"] ?? ""
+        citationView.isEditable = editable
+        abstractView.isEditable = editable
+        proofEntry.adopt.isEnabled = editable
+        proofEntry.value.isEnabled = editable
+        proofEntry.refresh()
         updateEvidence(proposal)
-        formatHint.stringValue = proposal.map { "命名格式："+NamingPreferences.pattern(item?.styleID ?? NamingPreferences.automatic,metadata:$0.metadata) } ?? ""
         refreshPrecision(item)
         finalName.stringValue = item?.stem ?? ""; finalName.toolTip = item?.displayName; finalName.isEnabled = proposal != nil && item?.outcome == nil && !isApplying
         reviewed.state = item?.reviewed == true ? .on : .off; reviewed.isEnabled = proposal != nil && item?.outcome == nil && !isApplying
@@ -650,13 +649,13 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
 
     @objc private func sourceFilterChanged() {
         let index = sources.indexOfSelectedItem - 1
-        sourceField = fieldKeys.indices.contains(index) ? fieldKeys[index] : nil
+        sourceField = BookMetadata.fields.indices.contains(index) ? BookMetadata.fields[index] : nil
         updateEvidence(selectedIndex.flatMap { items[$0].proposal })
     }
 
     func controlTextDidBeginEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField,
-              let key = field.identifier?.rawValue, let index = fieldKeys.firstIndex(of: key) else { return }
+              let key = field.identifier?.rawValue, let index = BookMetadata.fields.firstIndex(of: key) else { return }
         sources.selectItem(at: index + 1)
         sourceFilterChanged()
     }
@@ -722,32 +721,81 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         }
         controller.onClose = { [weak self] in self?.templateWindow = nil }; controller.show(on:window)
     }
+    private var selectedItem: BatchNamingItem? {
+        guard let index = selectedIndex, items.indices.contains(index) else { return nil }
+        return items[index]
+    }
+
+    private func makeField(_ key: String) -> NSView {
+        if let index = fieldKeys.firstIndex(of: key) { return NamingFormLayout.field(key, fields[index]) }
+        let text = key == "摘要" ? abstractView : citationView
+        let scroll = ocrTextScroll(text, editable: true, font: .systemFont(ofSize: 13))
+        text.delegate = self
+        text.setAccessibilityLabel(BookMetadata.label(key))
+        scroll.heightAnchor.constraint(equalToConstant: key == "摘要" ? 76 : 58).isActive = true
+        return NamingFormLayout.field(key, scroll)
+    }
+
+    @objc private func toggleBookList(_ sender: NSButton) {
+        listExpanded.toggle()
+        let high = splitView(split, constrainMaxCoordinate: .greatestFiniteMagnitude, ofSubviewAt: 0)
+        let wanted = max(125, split.bounds.height * (listExpanded ? 0.60 : 0.27))
+        split.setPosition(max(106, min(high, wanted)), ofDividerAt: 0)
+        sender.title = listExpanded ? "收起书单" : "展开书单"
+    }
+
+    @objc private func generateCitation() {
+        guard let info = selectedItem?.proposal?.metadata,
+              let draft = BookMetadata.citationDraft(info) else { return }
+        updateField("参考文献格式", value: draft, reflectEditor: true)
+    }
+
+    func textDidChange(_ notification: Notification) {
+        guard let text = notification.object as? NSTextView else { return }
+        if text === abstractView { updateField("摘要", value: text.string) }
+        else if text === citationView { updateField("参考文献格式", value: text.string) }
+    }
+
+    private func updateField(_ key: String, value: String, reflectEditor: Bool = false) {
+        guard let index = selectedIndex, let item = selectedItem, item.proposal != nil,
+              item.outcome == nil, !isApplying else { return }
+        let normalized = BookMetadata.canonical([key: value])[key] ?? value
+        item.proposal?.metadata[key] = normalized.components(separatedBy: .newlines).joined(separator: " ")
+        if reflectEditor {
+            if let fieldIndex = fieldKeys.firstIndex(of: key) { fields[fieldIndex].stringValue = normalized }
+            else if key == "摘要" { abstractView.string = normalized }
+            else if key == "参考文献格式" { citationView.string = normalized }
+        }
+        item.reviewed = true
+        item.included = true
+        reviewed.state = .on
+        let stem = item.stem
+        if finalName.stringValue != stem { finalName.stringValue = stem }
+        proofEntry.refresh()
+        updateDetailNote(item)
+        reloadEditedRows(index)
+    }
+
     func controlTextDidChange(_ notification: Notification) {
-        guard let index = selectedIndex,let field = notification.object as? NSTextField,items[index].proposal != nil,items[index].outcome == nil,!isApplying else { return }
-        let item = items[index]
+        guard let index = selectedIndex, let item = selectedItem, let field = notification.object as? NSTextField,
+              item.proposal != nil, item.outcome == nil, !isApplying else { return }
         if field === finalName {
             let raw = item.isPDF ? VectorFilename.render(field.stringValue, marked: false) : field.stringValue
             item.customName = raw.isEmpty ? nil : raw
-        } else if let key = field.identifier?.rawValue, let fieldIndex = fieldKeys.firstIndex(of: key) {
-            item.reviewed = true
-            item.included = true
-            reviewed.state = .on
-            item.proposal!.metadata[key] = key == "出版日期" ? BookMetadata.date(field.stringValue)
-                : key == "作者" ? BookMetadata.author(field.stringValue) : field.stringValue
-            let hint = "命名格式："+NamingPreferences.pattern(item.styleID,metadata:item.proposal!.metadata)
-            if formatHint.stringValue != hint { formatHint.stringValue = hint }
-            let stem = item.stem
-            if finalName.stringValue != stem { finalName.stringValue = stem }
-            let status = item.proposal!.fieldStatus(key)
-            if fieldStates[fieldIndex].stringValue != status { fieldStates[fieldIndex].stringValue = status }
-            updateDetailNote(item)
+            reloadEditedRows(index)
+        } else if let key = field.identifier?.rawValue, fieldKeys.contains(key) {
+            updateField(key, value: field.stringValue)
         }
+    }
+
+    private func reloadEditedRows(_ index: Int) {
         var rows = IndexSet(planIssues.keys)
         rows.insert(index)
         planIssues.removeAll()
-        reloadRows(rows,columns:IndexSet([0, 2, 3]))
+        reloadRows(rows, columns: IndexSet([0, 2, 3]))
         updateControls()
     }
+
     func controlTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField, let index = selectedIndex,
               items.indices.contains(index) else { return }
@@ -759,7 +807,9 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
 
     @objc func adoptEvidence() {
         guard let index = selectedIndex,!isApplying,items[index].outcome == nil,currentEvidence.indices.contains(evidenceTable.selectedRow) else { return }
-        let value = currentEvidence[evidenceTable.selectedRow]; items[index].proposal?.metadata[value.field] = value.value; items[index].reviewed = true; items[index].included = true; planIssues = [:]; table.reloadData(); loadDetails(); updateControls()
+        let value = currentEvidence[evidenceTable.selectedRow]
+        updateField(value.field, value: value.value, reflectEditor: true)
+        if let page = value.page { bookPreview.showPage(page - 1) }
     }
     @objc func showSources() {
         guard let index = selectedIndex,let proposal = items[index].proposal,!proposal.pages.isEmpty,!window.hasDocumentDialog else { return }

@@ -4,6 +4,7 @@ import AppKit
 final class WorkflowUITest:NSObject,NSApplicationDelegate {
     let folder:URL,output:URL
     var reader:ReaderController!,editor:BookEditor?,batch:BatchNamingWindow?
+    var naming: RenameSheet?
     var stage=0,checks:[String]=[],deadline=Date().addingTimeInterval(45)
     let defaults=UserDefaults.standard
     var savedSidebar:Any?
@@ -143,15 +144,56 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 controller.onSaved = { [weak self] _ in self?.pdfOutlineSaved = true }
                 controller.saveDraft()
                 stage = 6
-            default:
+            case 6:
                 guard pdfOutlineSaved else {tick();return}
                 let book = try BookArchive(url: folder.appendingPathComponent("pdf/parent-child.pdf"))
                 try check(book.chapters.map(\.title) == ["新父项","新子项"] &&
                           book.chapters.map(\.level) == [0,1] && book.chapters.map(\.pageIndex) == [0,0],
                           "文本模式将一个旧书签换为同页父子项，可直接保存且层级不变")
+                let info = RenameSheet(book: book)
+                naming = info
+                NativeDialog.present(info.window, on: reader.window)
+                info.prepareForDisplay()
+                stage = 7
+            default:
+                guard let info = naming, info.originalPreview.canvas.hasPage else { tick(); return }
+                let host = info.window.contentView!
+                host.layoutSubtreeIfNeeded()
+                let title = info.fields[info.keys.firstIndex(of: "书名")!]
+                let titleRect = title.convert(title.bounds, to: host)
+                let originalRect = info.originalPreview.convert(info.originalPreview.bounds, to: host)
+                let nameRect = info.nameField.convert(info.nameField.bounds, to: host)
+                let edition = info.fields[info.keys.firstIndex(of: "版本说明")!]
+                let series = info.fields[info.keys.firstIndex(of: "丛书名")!]
+                try check(edition.bounds.width > 140 && abs(edition.bounds.width - series.bounds.width) < 2,
+                          "单本并排字段占满双列表单")
+                try check(titleRect.width > 300 && titleRect.maxX <= originalRect.minX && originalRect.height > 250,
+                          "单本窗口左侧显示分组字段，右侧保留原页")
+                try check(nameRect.minX <= titleRect.minX + 5 && nameRect.width > originalRect.width && nameRect.maxY < originalRect.minY,
+                          "单本命名及最终文件名横跨底部")
+                info.proofEntry.picker.selectItem(withTitle: "数字版次")
+                info.proofEntry.value.stringValue = "第１版"
+                info.proofEntry.adopt.performClick(nil)
+                try check(info.metadataSnapshot["数字版次"] == "第1版" && !info.nameField.stringValue.contains("版"),
+                          "单本从原页区采用第一版，文件名省略版次")
+                try captureWorkflowWindow(info.window, to: output.deletingPathExtension().appendingPathExtension("single.png"))
                 finish();return
             }
             tick()
         }catch{finish(error.localizedDescription)}
     }}
+}
+
+func captureWorkflowWindow(_ window: NSWindow, to url: URL) throws {
+    guard let view = window.contentView else { return }
+    view.layoutSubtreeIfNeeded()
+    view.displayIfNeeded()
+    guard let image = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+        throw ReaderFailure("无法截取窗口。")
+    }
+    view.cacheDisplay(in: view.bounds, to: image)
+    guard let data = image.representation(using: .png, properties: [:]) else {
+        throw ReaderFailure("无法生成窗口截图。")
+    }
+    try data.write(to: url)
 }

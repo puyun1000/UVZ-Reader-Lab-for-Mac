@@ -76,6 +76,13 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
             let previewRect = batch.bookPreview.convert(batch.bookPreview.bounds, to: host)
             try check(viewport.width > host.bounds.width * 0.88 && listRect.midY > previewRect.midY && previewRect.height > 300,
                       "书单横跨窗口上方，原页和图书信息在下方并列")
+            let titleRect = batch.fields[1].convert(batch.fields[1].bounds, to: host)
+            let nameRect = batch.finalName.convert(batch.finalName.bounds, to: host)
+            try check(titleRect.minX >= previewRect.maxX && nameRect.maxY < titleRect.minY && nameRect.width > 200,
+                      "批量原页与图书信息并列，命名栏位于图书信息下方")
+            let edition = batch.fields[3], series = batch.fields[4]
+            try check(edition.bounds.width > 140 && abs(edition.bounds.width - series.bounds.width) < 2,
+                      "批量并排字段占满双列表单")
             try check(batch.items.allSatisfy { !$0.included }, "选书与自动分析均不勾选未操作的图书")
             let normalSize = batch.window.contentView!.bounds.size
             batch.window.setContentSize(NSSize(width: 1040, height: 650))

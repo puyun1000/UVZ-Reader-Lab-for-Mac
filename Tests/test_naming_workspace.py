@@ -74,6 +74,18 @@ CIP核字
     suggestion = run('--batch-merge', str(evidence))
     stem = suggestion['suggestedName']
     assert stem == '文献整理导论（修订版）_（英）约翰·哈里斯著；吴清和译_文津出版社_2021.08（第2版）', suggestion
+    for first in ('第1版', '1版', '第１版', '第一版', '初版', None):
+        first_edition = dict(metadata, 出版日期='2021.08')
+        if first is None:
+            first_edition.pop('数字版次')
+            first_edition['出版日期'] = '2021.08（第１版）'
+        else:
+            first_edition['数字版次'] = first
+        evidence.write_text(json.dumps({'original': first_edition}, ensure_ascii=False))
+        first_suggestion = run('--batch-merge', str(evidence))
+        assert first_suggestion['metadata']['数字版次'] == '第1版', first_suggestion
+        assert first_suggestion['suggestedName'] == stem.removesuffix('（第2版）'), first_suggestion
+
     path = books / 'vector.pdf'
     before = root / 'before.png'
     subprocess.run([EXE, '--render-page', path, '3', before], check=True)
@@ -88,4 +100,4 @@ CIP核字
     result = run('--inspect', str(saved))['metadata']
     for key in ('作者','参考文献格式','版本说明','数字版次','原书定价','出版地','形态项'):
         assert result[key] == suggestion['metadata'][key], (key, result)
-print(json.dumps(dict(passed=8, checks=['vector, scan, mixed and uncertain classifications', 'image DPI', 'explicit credits and colophon extraction', 'edition in filename', 'filename and additional metadata round trip'])))
+print(json.dumps(dict(passed=14, checks=['vector, scan, mixed and uncertain classifications', 'image DPI', 'explicit credits and colophon extraction', 'first edition retained in metadata and omitted from filename', 'second edition in filename', 'filename and additional metadata round trip'])))

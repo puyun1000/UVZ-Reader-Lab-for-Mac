@@ -79,6 +79,11 @@ final class BatchBookPreview: NSStackView {
     let pageField = CenteredTextField()
     private let count = CenteredTextField(labelWithString: "/ —")
     private let status = CenteredTextField(labelWithString: "选择图书即可翻看全书")
+    private let previewTitle = CenteredTextField(labelWithString: "图书预览")
+    var titleVisible: Bool {
+        get { !previewTitle.isHidden }
+        set { previewTitle.isHidden = !newValue }
+    }
     private let previous = NSButton(title: "上一页", target: nil, action: nil)
     private let next = NSButton(title: "下一页", target: nil, action: nil)
     private let queue = OperationQueue()
@@ -107,12 +112,11 @@ final class BatchBookPreview: NSStackView {
         pageField.setAccessibilityLabel("预览物理页码")
         let toolbar = NSStackView(views: [previous, pageField, count, next, NSView(), smaller, zoom, fit])
         toolbar.spacing = 4
-        let title = CenteredTextField(labelWithString: "图书预览")
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        previewTitle.font = .systemFont(ofSize: 13, weight: .semibold)
         status.lineBreakMode = .byTruncatingMiddle
         status.textColor = .secondaryLabelColor
         status.font = .systemFont(ofSize: 11)
-        for view in [title, toolbar, canvas, status] {
+        for view in [previewTitle, toolbar, canvas, status] {
             addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         }

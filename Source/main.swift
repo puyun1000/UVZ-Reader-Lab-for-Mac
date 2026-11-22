@@ -305,6 +305,11 @@ if args.count == 2,args[1] == "--naming-model-tests" {
   let automatic = NamingPreferences.automatic
   try check(NamingPreferences.pattern(automatic,metadata:["丛书名":"丛书"],defaults:defaults)==FilenameTemplate.presets[1],"有丛书名自动选择含丛书格式")
   try check(NamingPreferences.pattern(automatic,metadata:["丛书名":"  "],defaults:defaults)==FilenameTemplate.presets[0],"空丛书名自动选择无丛书格式")
+  let namingPattern = "{书名}_{出版日期}（{数字版次}）"
+  try check(try FilenameTemplate.render(namingPattern, metadata:["书名":"样书","出版日期":"2021.08","数字版次":"第1版"]) == "样书_2021.08",
+            "自定义格式的数字版次占位符省略第1版及空括号")
+  try check(try FilenameTemplate.render(namingPattern, metadata:["书名":"样书","出版日期":"2021.08","数字版次":"第2版"]) == "样书_2021.08（第2版）",
+            "自定义格式的数字版次占位符可写入第2版")
   let a = try NamingPreferences.save(name:"按书名",pattern:"{书名}_{SS号}",defaults:defaults)
   let b = try NamingPreferences.save(name:"按作者",pattern:"{作者}·{书名}",defaults:defaults)
   try check(NamingPreferences.library(defaults).count == 2 && NamingPreferences.library(UserDefaults(suiteName:suite)!) == NamingPreferences.library(defaults),"多条格式持久保存，重新读取不丢失")

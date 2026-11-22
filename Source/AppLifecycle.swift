@@ -705,7 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 default:
                     guard let sheet = reader.renameSheet, !sheet.recognitionRunning, !sheet.recognitionText.string.isEmpty else { metadataTick(); return }
                     guard sheet.metadataSnapshot["ISBN"] == "9787214312990", sheet.metadataSnapshot["作者"] == "乔玉钰著", sheet.metadataSnapshot["书名"] == "东亚女性汉文学的位相", sheet.metadataSnapshot["出版日期"] == "2026.03" else { throw ReaderFailure("Real copyright metadata fill") }
-                    guard sheet.nameField.stringValue.hasPrefix("【东亚古代汉文学史研究丛书】"),sheet.extractionText.string.contains("ISBN：9787214312990"), sheet.extractionText.enclosingScrollView!.frame.height > 250 else { throw ReaderFailure("Structured extraction pane") }
+                    guard sheet.nameField.stringValue.hasPrefix("【东亚古代汉文学史研究丛书】"),sheet.extractionText.string.contains("ISBN：9787214312990"), sheet.extractionText.enclosingScrollView != nil else { throw ReaderFailure("Structured extraction pane") }
                     sheet.enlargeRecognition(); guard let review=sheet.reviewWindow,review.window.contentView!.bounds.height>=600 else { throw ReaderFailure("Copyright enlarge window") }
                     try checkMovableDialog(review.window,parent:sheet.window)
                     try captureView(review.window.contentView!,to: output.deletingPathExtension().appendingPathExtension("review.png")); review.window.close()

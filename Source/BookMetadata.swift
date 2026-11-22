@@ -16,7 +16,7 @@ enum BookMetadata {
             if output["版本说明"] == match[1] { output["书名"] = match[0] }
         }
         if let value = output["出版日期"] {
-            if let match = captures(#"^(.+?)[（(]((?:第\s*)?[0-9０-９]+\s*版)[）)]$"#, value).first {
+            if let match = captures(#"^(.+?)[（(]\s*((?:第\s*)?(?:[0-9０-９]+|一)\s*版|初版)\s*[）)]$"#, value).first {
                 if output["数字版次", default: ""].isEmpty { output["数字版次"] = match[1] }
                 output["出版日期"] = date(match[0])
             } else { output["出版日期"] = date(value) }
@@ -29,12 +29,25 @@ enum BookMetadata {
         if let value = output["作者"] { output["作者"] = author(value) }
         return output
     }
+    static func citationDraft(_ fields: [String: String]) -> String? {
+        let info = canonical(fields)
+        guard let title = info["书名"], !title.isEmpty else { return nil }
+        let version = info["版本说明"].flatMap { $0.isEmpty ? nil : "（" + $0 + "）" } ?? ""
+        let author = info["作者"].flatMap { $0.isEmpty ? nil : $0 + ". " } ?? ""
+        let publication = [info["出版地", default: ""], info["出版社", default: ""]]
+            .filter { !$0.isEmpty }.joined(separator: "：")
+        let year = String(info["出版日期", default: ""].prefix(4))
+        let imprint = [publication, year].filter { !$0.isEmpty }.joined(separator: "，")
+        return author + title + version + "[M]." + (imprint.isEmpty ? "" : " " + imprint + ".")
+    }
+
     static func label(_ key: String) -> String {
         ["页数": "正文页数", "摘要": "内容提要"][key] ?? key
     }
 
     static func numericEdition(_ value: String) -> String? {
         let text = value.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.range(of: #"^(?:初版|(?:第\s*)?一\s*版)$"#, options: .regularExpression) != nil { return "第1版" }
         guard let digits = captures(#"^(?:第\s*)?([0-9]{1,4})\s*版$"#, text).first?.first,
               let number = Int(digits), number > 0 else { return nil }
         return "第\(number)版"
@@ -105,9 +118,12 @@ enum FilenameTemplate {
         guard !template.isEmpty, template.count <= 2000 else { throw ReaderFailure("请填写命名格式（最多 2000 字符）。") }
         let canonical = BookMetadata.canonical(metadata)
         var values = canonical
+        // Keep the first edition in the book record, but omit it in every
+        // naming format, including an explicitly placed edition placeholder.
+        if values["数字版次"] == "第1版" { values.removeValue(forKey: "数字版次") }
         for (key, extra) in [("书名", "版本说明"), ("出版日期", "数字版次")] {
             guard !template.contains("{"+extra+"}"), let base = values[key], !base.isEmpty,
-                  let suffix = canonical[extra], !suffix.isEmpty, !base.hasSuffix("（" + suffix + "）"),
+                  let suffix = values[extra], !suffix.isEmpty, !base.hasSuffix("（" + suffix + "）"),
                   !base.hasSuffix("(" + suffix + ")") else { continue }
             if key == "出版日期" && BookMetadata.numericEdition(suffix) == nil { continue }
             values[key] = base + "（" + suffix + "）"
