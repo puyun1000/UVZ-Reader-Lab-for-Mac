@@ -3,6 +3,41 @@
   "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
   "versions": [
     {
+      "version": "0.28.1",
+      "status": "original-release",
+      "sourceCommit": "b82a45c7f8e7302759ef99ed5e07ae6139de9843",
+      "releaseId": 454190228,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.28.1",
+      "publishedAt": "2026-11-22T04:03:01Z",
+      "releaseNotes": "- 单本和批量统一图书信息分组、原页核对和命名控件。单本在底部集中显示命名与保存操作，识别结果按需打开。\n- 批量保留全宽书单，可展开查看更多图书。下方原页与图书信息同屏，可从原页核对区直接录入字段。\n- 第 1 版保留在图书信息。内置及自定义格式生成文件名时省略第 1 版，第 2 版起可列入文件名。\n通过 444 项功能检查、95 项原生界面检查和 13 项 Quick Look 控制器检查。\n\n适用于 Apple 芯片 Mac、macOS 14 或更新版本。临时签名，未经 Apple 公证。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.28.1-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "8d39f9c660096f499cd6223d4c8d78b989aa91bad354e3e72740e006e877fffd",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.1/UVZReaderLab-0.28.1-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.28.1-macOS-arm64.dmg",
+          "bytes": 13426239,
+          "sha256": "094ef4a85edb2ff491fb45782aeedfcbad4185bceb4be5f48a570d6103d8d248",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.1/UVZReaderLab-0.28.1-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.28.1-verification.json",
+          "bytes": 1998,
+          "sha256": "e65a080745c0c790186e2d5e72c959ec584f5c2926f4192c7a9933b04c30861d",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.1/UVZReaderLab-0.28.1-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.28.1.zip",
+          "bytes": 20696910,
+          "sha256": "b7c0d990af9a10a661298f9fa7a52687e897d3e11258232db4bb0163690a4788",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.1/UVZReaderLab-0.28.1.zip"
+        }
+      ]
+    },
+    {
       "version": "0.28.0",
       "status": "original-release",
       "sourceCommit": "e06819fae1ea8f35a711eec77912c76f7ae8a5e3",
