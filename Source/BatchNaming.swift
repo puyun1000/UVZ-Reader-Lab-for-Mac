@@ -24,8 +24,9 @@ struct NamingProposal: Encodable {
     let originalMetadata: [String:String]
     var fingerprint: String
     let selection: MetadataSelection
+    var precision: PDFPrecision.Result? = nil
     private enum CodingKeys: String, CodingKey {
-        case metadata, evidence, pages, notes, originalMetadata, fingerprint
+        case metadata, evidence, pages, notes, originalMetadata, fingerprint, precision
     }
     var candidates: [String] {
         FilenameTemplate.presets.map { (try? FilenameTemplate.render($0,metadata:metadata)) ?? "" }
@@ -60,11 +61,22 @@ final class BatchNamingItem {
     var included = false, reviewed = false
     var styleID = NamingPreferences.automatic
     var customName: String?
+    var vectorOverride: Bool?
     var error: String?
     var outcome: String?
     var analysing = false
     init(_ url: URL, styleID: String = NamingPreferences.automatic) { self.originalURL = url; self.url = url; self.styleID = styleID }
-    var stem: String { customName ?? proposal.flatMap { try? FilenameTemplate.render(NamingPreferences.pattern(styleID,metadata:$0.metadata),metadata:$0.metadata) } ?? "" }
+    var isPDF: Bool { url.pathExtension.lowercased() == "pdf" && !url.hasDirectoryPath }
+    var suggestedVector: Bool {
+        VectorFilename.hasMarker(url.deletingPathExtension().lastPathComponent) || proposal?.precision?.kind == .vector
+    }
+    var isMarkedVector: Bool { vectorOverride ?? suggestedVector }
+    var stem: String {
+        let name = customName ?? proposal.flatMap {
+            try? FilenameTemplate.render(NamingPreferences.pattern(styleID,metadata:$0.metadata),metadata:$0.metadata)
+        } ?? ""
+        return isPDF ? VectorFilename.render(name, marked: isMarkedVector) : name
+    }
     var displayName: String { stem + (url.pathExtension.isEmpty || ((try? url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory) == true) ? "" : "."+url.pathExtension) }
     var status: String {
         if let outcome { return outcome }; if analysing { return "正在分析" }; if let error { return error }
@@ -93,7 +105,7 @@ enum BatchNaming {
         }
         func norm(_ text: String) -> String {
             var raw = text.precomposedStringWithCompatibilityMapping
-            if field == "作者" { raw = raw.replacingOccurrences(of:"(?:編著|编著|主編|主编|編校|编校|校注|選編|选编|著|作|編|编|譯|译)(?=[ ;；、,，]|$)",with:"",options:.regularExpression) }
+            if field == "作者" { raw = raw.replacingOccurrences(of:"(?:編著|编著|主編|主编|編校|编校|校注|點校|点校|整理|撰|譯注|译注|選編|选编|著|作|編|编|譯|译)(?=[ ;；、,，]|$)",with:"",options:.regularExpression) }
             return PageInspection.normalized(raw)
         }
         return norm(a) == norm(b)
@@ -102,16 +114,23 @@ enum BatchNaming {
         let directory = (try? url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory) == true
         var name = directory ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
         var values: [String:String] = [:]
+        if !directory && url.pathExtension.lowercased() == "pdf" { name = VectorFilename.render(name, marked: false) }
         if name.hasPrefix("【"),let end = name.firstIndex(of:"】") {
             values["丛书名"] = String(name[name.index(after:name.startIndex)..<end]); name = String(name[name.index(after:end)...])
         }
         var parts = name.components(separatedBy:"_")
         if let last = parts.last,last.range(of:"^[0-9]{8}$",options:.regularExpression) != nil { values["SS号"] = parts.removeLast() }
-        if let last = parts.last,last.range(of:"^[12][0-9]{3}(?:[.年/-](?:0?[1-9]|1[0-2])月?)?$",options:.regularExpression) != nil { values["出版日期"] = BookMetadata.date(parts.removeLast()) }
+        if let last = parts.last {
+            let date = BookMetadata.canonical(["出版日期": last])
+            if date["出版日期", default: ""].range(of:"^[12][0-9]{3}(?:[.年/-](?:0?[1-9]|1[0-2])月?)?$",options:.regularExpression) != nil {
+                _ = parts.removeLast()
+                values.merge(date) { _, new in new }
+            }
+        }
         if let last = parts.last,last.hasSuffix("出版社") { values["出版社"] = parts.removeLast() }
         if parts.count >= 2, values["出版社"] != nil,values["出版日期"] != nil { values["作者"] = parts.removeLast() }
         if !parts.joined(separator:"_").isEmpty { values["书名"] = parts.joined(separator:"_").trimmingCharacters(in:.whitespaces) }
-        return values
+        return BookMetadata.canonical(values)
     }
     static func discover(_ root: URL, recursive: Bool = false, extensions: Set<String> = bookExtensions, cancelled: () -> Bool = { false }) throws -> [URL] {
         let fm = FileManager.default
@@ -218,6 +237,7 @@ enum BatchNaming {
         let source = try NamingSource(url)
         let original = BookMetadata.canonical(source.metadata), nameValues = filenameValues(url)
         var evidence = original.filter { BookMetadata.fields.contains($0.key) && !$0.value.isEmpty }.map { NamingEvidence(field:$0.key,value:$0.value,source:source.book?.usesPDGNumbering == true ? "BookInfo.dat" : "文档信息",page:nil,inferred:false) }
+        let precision = source.pdf.map { PDFPrecision.inspect($0, cancelled: cancelled) }
         var notes: [String] = [], pages: [NamingPage] = [], selected: [(Int,String)] = []
         var anchors = original
         for (key,value) in nameValues where anchors[key,default:""].isEmpty { anchors[key] = value }
@@ -276,7 +296,9 @@ enum BatchNaming {
         }.map(\.element)
         guard try fingerprint(url,cancelled:cancelled) == before else { throw ReaderFailure("图书在分析期间发生变化，请重新分析。") }
         if cancelled() { throw ReaderFailure("已停止分析。") }
-        return merge(original:original,evidence:evidence,pages:pages,notes:notes,fingerprint:before)
+        var proposal = merge(original:original,evidence:evidence,pages:pages,notes:notes,fingerprint:before)
+        proposal.precision = precision
+        return proposal
     }
     static func destination(_ request: BatchNameRequest) throws -> URL {
         let url = URL(fileURLWithPath:request.path), name = request.stem.trimmingCharacters(in:.whitespacesAndNewlines)

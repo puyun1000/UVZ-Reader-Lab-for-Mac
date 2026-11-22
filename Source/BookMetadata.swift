@@ -3,17 +3,74 @@ import Vision
 
 /// Canonical bibliographic fields; unknown BookInfo keys always survive editing.
 enum BookMetadata {
-    static let fields = ["ISBN", "书名", "作者", "丛书名", "出版社", "出版日期", "页数", "SS号", "DX号", "摘要"]
-    static let aliases = ["書名":"书名", "叢書名":"丛书名", "出版年月":"出版日期", "頁數":"页数", "總頁數":"页数", "內容簡介":"摘要", "年份": "出版日期", "出版时间": "出版日期", "丛书": "丛书名", "总页数": "页数", "内容提要": "摘要", "内容简介": "摘要", "ISBN号": "ISBN", "DXID": "DX号", "SSID": "SS号"]
+    static let fields = ["ISBN", "书名", "作者", "版本说明", "丛书名", "出版地", "出版社", "出版日期", "数字版次", "页数", "形态项", "原书定价", "币种", "中图法分类号", "主题词", "SS号", "DX号", "参考文献格式", "摘要"]
+    static let aliases = ["正文页数":"页数", "形态":"形态项", "定价":"原书定价", "中图分类号":"中图法分类号", "版次":"数字版次", "書名":"书名", "叢書名":"丛书名", "出版年月":"出版日期", "頁數":"页数", "總頁數":"页数", "內容簡介":"摘要", "年份": "出版日期", "出版时间": "出版日期", "丛书": "丛书名", "总页数": "页数", "内容提要": "摘要", "内容简介": "摘要", "ISBN号": "ISBN", "DXID": "DX号", "SSID": "SS号"]
     static func canonical(_ input: [String: String]) -> [String: String] {
         var output = input
         for (old, key) in aliases.sorted(by: { $0.key < $1.key }) where output[key, default: ""].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             if let value = input[old] { output[key] = value }
         }
         for key in aliases.keys { output.removeValue(forKey: key) }
-        if let value = output["出版日期"] { output["出版日期"] = date(value) }
+        if let title = output["书名"], let match = captures(#"^(.+?)\s*[（(](新版|修[订訂]版|增[订訂]版|校[订訂]版|改[订訂]版|重[订訂]版)[）)]$"#, title).first {
+            if output["版本说明", default: ""].isEmpty { output["版本说明"] = match[1] }
+            if output["版本说明"] == match[1] { output["书名"] = match[0] }
+        }
+        if let value = output["出版日期"] {
+            if let match = captures(#"^(.+?)[（(]((?:第\s*)?[0-9０-９]+\s*版)[）)]$"#, value).first {
+                if output["数字版次", default: ""].isEmpty { output["数字版次"] = match[1] }
+                output["出版日期"] = date(match[0])
+            } else { output["出版日期"] = date(value) }
+        }
+        if let edition = output["数字版次"], let normalized = numericEdition(edition) { output["数字版次"] = normalized }
+        if let value = output["版本说明"] {
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            output["版本说明"] = captures(#"^[（(](.+)[）)]$"#, clean).first?.first ?? clean
+        }
+        if let value = output["作者"] { output["作者"] = author(value) }
         return output
     }
+    static func label(_ key: String) -> String {
+        ["页数": "正文页数", "摘要": "内容提要"][key] ?? key
+    }
+
+    static func numericEdition(_ value: String) -> String? {
+        let text = value.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let digits = captures(#"^(?:第\s*)?([0-9]{1,4})\s*版$"#, text).first?.first,
+              let number = Int(digits), number > 0 else { return nil }
+        return "第\(number)版"
+    }
+
+    static let creditRole = #"(?:编著|編著|主编|主編|编校|編校|校注|点校|點校|校订|校訂|整理|选编|選編|译注|譯注|著|撰|编|編|译|譯)"#
+
+    static func author(_ value: String) -> String {
+        let prefix = #"(^|[，,、；;]\s*)[\[［〔【(（]\s*([\p{Han}]{1,12})\s*[\]］〕】)）]\s*"#
+        let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: prefix, with: "$1（$2）", options: .regularExpression)
+            .replacingOccurrences(of: #"(?<=\p{Han})[ \t]*[・‧•．][ \t]*(?=\p{Han})"#, with: "·", options: .regularExpression)
+            .replacingOccurrences(of: #"(?<=[A-Za-z])[．。](?=\s|[A-Za-z]|$)"#, with: ".", options: .regularExpression)
+        // A period between Han name components can be confirmed as a name
+        // separator. Latin initials and suffixes keep their original periods.
+        let marked = name.replacingOccurrences(of: #"(?<=\p{Han})\.(?=\p{Han})"#, with: "·", options: .regularExpression)
+        let explicitGroups = marked.components(separatedBy: CharacterSet(charactersIn: ";；"))
+        return explicitGroups.map { group in
+            // Commas between Latin surname/suffix components can belong to the name.
+            let parts = group.replacingOccurrences(of: #"[,](?=\s*(?:Jr\.|Sr\.|I{2,3}(?:\b|$)))"#, with: "\u{E000}", options: .regularExpression)
+                .components(separatedBy: CharacterSet(charactersIn: "，,、"))
+                .map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "\u{E000}", with: ",") }
+                .filter { !$0.isEmpty }
+            let ending = parts.map { captures("(" + creditRole + #")\s*$"#, $0).first?.first }
+            var text = ""
+            for i in parts.indices {
+                if i > 0 {
+                    let nextRole = ending[i...].compactMap { $0 }.first
+                    text += ending[i-1] != nil && nextRole != nil && ending[i-1] != nextRole ? "；" : "，"
+                }
+                text += parts[i]
+            }
+            return text
+        }.filter { !$0.isEmpty }.joined(separator: "；")
+    }
+
     static func date(_ value: String) -> String {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if let match = captures("^([12][0-9]{3})[年./－-]\\s*(0?[1-9]|1[0-2])(?:月|[./-][0-9]{1,2}日?)?$", text).first,
@@ -46,11 +103,20 @@ enum FilenameTemplate {
         let source = template as NSString
         let matches = regex.matches(in: template, range: NSRange(location: 0, length: source.length))
         guard !template.isEmpty, template.count <= 2000 else { throw ReaderFailure("请填写命名格式（最多 2000 字符）。") }
+        let canonical = BookMetadata.canonical(metadata)
+        var values = canonical
+        for (key, extra) in [("书名", "版本说明"), ("出版日期", "数字版次")] {
+            guard !template.contains("{"+extra+"}"), let base = values[key], !base.isEmpty,
+                  let suffix = canonical[extra], !suffix.isEmpty, !base.hasSuffix("（" + suffix + "）"),
+                  !base.hasSuffix("(" + suffix + ")") else { continue }
+            if key == "出版日期" && BookMetadata.numericEdition(suffix) == nil { continue }
+            values[key] = base + "（" + suffix + "）"
+        }
         var result = template
         for match in matches.reversed() {
             let key = source.substring(with: match.range(at: 1))
-            guard BookMetadata.fields.contains(key) || key == "年份" else { throw ReaderFailure("未知命名字段：{\(key)}。请使用下方列出的字段。") }
-            let value = key == "年份" ? String(metadata["出版日期", default: ""].prefix(4)) : metadata[key, default: ""]
+            guard BookMetadata.fields.contains(key) || key == "年份" || ["正文页数","内容提要"].contains(key) else { throw ReaderFailure("未知命名字段：{\(key)}。请使用下方列出的字段。") }
+            let value = key == "年份" ? String(values["出版日期", default: ""].prefix(4)) : values[BookMetadata.aliases[key] ?? key, default: ""]
             result = (result as NSString).replacingCharacters(in: match.range, with: FilenameDraft.clean(value))
         }
         guard !result.contains("{"), !result.contains("}") else { throw ReaderFailure("命名格式中的花括号未配对。") }

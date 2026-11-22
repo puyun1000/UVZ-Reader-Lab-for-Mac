@@ -69,6 +69,9 @@ enum BibliographicExtraction {
             ("书名","(?:书\\s*名|書\\s*名|タイトル|Title|Book Title)"),("作者","(?:作\\s*者|著\\s*者|编\\s*著|著\\s*译\\s*者|著者名|編者|Author(?:s)?|Written by)"),
             ("丛书名","(?:丛\\s*书\\s*名|丛\\s*书|叢書名|シリーズ(?:名)?|Series)"),("出版社","(?:出\\s*版\\s*社|出版发行|出版者|[発發]行(?:所|者)|Publisher|Published by)"),
             ("出版日期","(?:出版日期|出版时间|出版年月|初版日期|初版年月|初版|[発發]行(?:年月日|日)|Publication date|Date of publication|Published)"),("页数","(?:总页数|页数|ページ数|Pages|Page count)"),
+            ("出版地","(?:出版地|出版地点)"),("形态项","(?:形态项|形态|形態項|形態)"),
+            ("中图法分类号","(?:中图法分类号|中图分类号|中圖分類號)"),("主题词","(?:主题词|主題詞)"),
+            ("参考文献格式","(?:参考文献格式|引文格式)"),("版本说明","(?:版本说明|版本)"),("数字版次","版次"),
             ("SS号","(?:SS\\s*号|SSID)"),("DX号","(?:DX\\s*号|DXID)"),
             ("摘要","(?:摘要|内容提要|内容简介|Abstract|Summary)")]
         func production(_ line: String) -> Bool { line.range(of:"^(?:责任编辑|责任校对|装帧设计|封面设计|版式设计|印刷|定价|开本|字数|电话|地址|书号|ISBN|.*第.*[版印])",options:.regularExpression) != nil }
@@ -76,7 +79,7 @@ enum BibliographicExtraction {
             for (key,label) in patterns where result[key] == nil {
                 var value = first("^(?:"+label+")[ \\t:：=]+(.+)$",line)
                 if value == nil,line.range(of:"^(?:"+label+")[ \\t:：=]*$",options:.regularExpression) != nil,index+1<lines.count,!production(lines[index+1]) { value = lines[index+1] }
-                if let value,!production(value) { result[key] = clean(value) }
+                if let value, (!production(value) || ["数字版次","版本说明"].contains(key)) { result[key] = clean(value) }
             }
         }
         // Explicit bibliographic dates only, not an arbitrary year elsewhere in the imprint.
@@ -126,6 +129,7 @@ enum BibliographicExtraction {
             let publication = try? NSRegularExpression(pattern:"([\\p{Han}A-Za-z·]{2,20})\\s*[:：]\\s*([^,，/／—－=]{2,100})\\s*[,，]\\s*([12][0-9]{3})(?:\\s*[.年/-]\\s*(0?[1-9]|1[0-2])(?=[^0-9]|$)月?)?")
             if let match = publication?.firstMatch(in:description,range:NSRange(description.startIndex...,in:description)) {
                 let src = description as NSString, placeStart = match.range.location
+                cv["出版地"] = clean(src.substring(with:match.range(at:1)))
                 let pub = clean(src.substring(with:match.range(at:2))).replacingOccurrences(of:"\\s+(?=[\\p{Han}])",with:"",options:.regularExpression)
                 if !pub.isEmpty { cv["出版社"] = pub }
                 let year = src.substring(with:match.range(at:3)), month = match.range(at:4).location == NSNotFound ? nil : Int(src.substring(with:match.range(at:4)))
@@ -135,7 +139,7 @@ enum BibliographicExtraction {
                 before = before.replacingOccurrences(of:"[.。]\\s*[—－-]+\\s*(?:[0-9一二三四五六七八九十]+版|初版|修訂版|修订版|增訂版|增订版|重印本)[\\s\\S]*$",with:"",options:.regularExpression)
                 let pieces = before.components(separatedBy:CharacterSet(charactersIn:"/／"))
                 if let title = pieces.first,!clean(title).isEmpty { cv["书名"] = clean(title) }
-                if pieces.count == 2 { cv["作者"] = clean(pieces[1]) }
+                if pieces.count == 2 { cv["作者"] = BookMetadata.author(clean(pieces[1])) }
                 else if pieces.count>2 { notes.append("CIP含多个责任说明或合订作品，需逐项核对书名与作者") }
                 let afterIndex = match.range.location+match.range.length
                 let after = src.substring(from:afterIndex)
@@ -162,6 +166,43 @@ enum BibliographicExtraction {
         }
         if iv["页数"] == nil { iv["页数"] = outside.compactMap { first("^([1-9][0-9]{0,4})\\s*页$",$0) }.first }
         if iv["丛书名"] == nil { iv["丛书名"] = outside.first { $0.range(of:"^[\\p{Han}A-Za-z·]{2,50}(?:丛书|叢書|文库|文庫|书系|書系|论丛|論叢|文丛|文叢|大系|系列)$",options:.regularExpression) != nil } }
+
+        // Read the bibliographic statement verbatim and only infer a number
+        // from an explicit, unambiguous count. A PDF's page total is separate.
+        if let statement = iv["形态项"], iv["页数"] == nil {
+            iv["页数"] = first(#"^(?:(?:[IVXLCDM]+|[0-9]+)\s*[,，]\s*)?([1-9][0-9]{0,5})\s*[页頁]$"#, statement)
+        }
+        let priced = outside.compactMap { line -> [String]? in
+            if line.range(of: #"^(?:原书)?定价[ :：]*"#, options: .regularExpression) == nil { return nil }
+            return BookMetadata.captures(#"^(?:原书)?定价[ :：]*(?:(人民币|CNY|RMB|港币|HKD|NT\$|USD|US\$|￥|¥)\s*)?([0-9]+(?:\.[0-9]{1,2})?)\s*(元|圆|圓)?\s*$"#, line).first
+        }
+        if priced.count == 1, let price = priced.first {
+            iv["原书定价"] = price[1]
+            let currencies = ["人民币":"CNY", "CNY":"CNY", "RMB":"CNY", "港币":"HKD", "HKD":"HKD", "NT$":"TWD", "USD":"USD", "US$":"USD"]
+            iv["币种"] = currencies[price[0]]
+        }
+        if let edition = editions.last, iv["数字版次"] == nil {
+            let digits = ["一":"1","二":"2","三":"3","四":"4","五":"5","六":"6","七":"7","八":"8","九":"9","十":"10"]
+            iv["数字版次"] = BookMetadata.numericEdition("第" + (digits[edition[2]] ?? edition[2]) + "版")
+        }
+        if iv["版本说明"] == nil {
+            let descriptions = Set(outside.compactMap { first(#"^(新版|修[订訂]版|增[订訂]版|校[订訂]版|改[订訂]版|重[订訂]版)$"#, $0) })
+            if descriptions.count == 1 { iv["版本说明"] = descriptions.first }
+        }
+        if let extracted = iv["数字版次"], let normalized = BookMetadata.numericEdition(extracted) { iv["数字版次"] = normalized }
+        // Explicit credit labels distinguish authors, editors and translators.
+        let credits = outside.compactMap { line -> String? in
+            guard let match = BookMetadata.captures(#"^(著者|编著|編著|编者|編者|主编|主編|译者|譯者|整理者|校注者)\s*[:：=]\s*(.+)$"#, line).first else { return nil }
+            let role = match[0].hasSuffix("者") ? String(match[0].dropLast()) : match[0]
+            let value = clean(match[1])
+            return value.hasSuffix(role) ? value : value + role
+        }
+        if !credits.isEmpty {
+            let hasMainCredit = outside.contains { $0.range(of: #"^(著者|编著|編著|编者|編者|主编|主編)\s*[:：=]"#, options: .regularExpression) != nil }
+            let base = hasMainCredit ? nil : (iv["作者"] ?? cv["作者"])
+            iv["作者"] = BookMetadata.author(([base].compactMap { $0 } + credits).joined(separator: "；"))
+        } else if let value = iv["作者"] { iv["作者"] = BookMetadata.author(value) }
+
         // Keep contradictory sources separate even though only one suggestion can fill a field.
         var values = cv
         for (key,value) in iv where values[key] == nil || key == "作者" { values[key] = value }

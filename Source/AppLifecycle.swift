@@ -198,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         ], to: main)
         let recent = NSMenuItem(title: "最近打开", action: nil, keyEquivalent: ""); recent.submenu = recentMenu; recentMenu.delegate = self
         _ = addMenu("文件", [item("新建阅读窗口", #selector(newWindow), "n", target: self), item("打开电子书…", #selector(chooseBooks), "o", target: self), recent, item("转换工作台…",#selector(conversionCommand),"k",target:self,modifiers:[.command,.shift]),item("批量规范命名…",#selector(batchNamingCommand),"b",target:self,modifiers:[.command,.shift]),
-            .separator(), item("书籍信息与重命名…", #selector(ReaderController.renameZip), "r", modifiers: [.command, .shift]), 
+            .separator(), item("图书信息与重命名…", #selector(ReaderController.renameZip), "r", modifiers: [.command, .shift]),
             item("编辑目录…", #selector(ReaderController.editBook), "e", modifiers: [.command, .shift]), item("保存目录", #selector(saveDirectoryDraft), "s", target: self),
             item("在线目录与封面…",#selector(ReaderController.showOnlineReferences)), .separator(), item("保存前备份原文件", #selector(toggleBackups), target: self), .separator(), item("关闭当前书籍", #selector(closeCurrentContext), "w", target: self),
             item("关闭窗口", #selector(NSWindow.performClose(_:)), "w", modifiers: [.command, .shift])], to: main)

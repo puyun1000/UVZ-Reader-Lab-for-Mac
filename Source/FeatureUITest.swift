@@ -71,8 +71,11 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
             try check(batch.bookPreview.canvas.documentView is VectorPageView, "固定预览采用矢量页")
             batch.window.contentView?.layoutSubtreeIfNeeded()
             let viewport = batch.table.enclosingScrollView!.frame
-            try check(viewport.width > batch.window.contentView!.bounds.width * 0.55 && viewport.height > 420,
-                      "书单优先分配宽度和高度")
+            let host = batch.window.contentView!
+            let listRect = batch.table.enclosingScrollView!.convert(batch.table.enclosingScrollView!.bounds, to: host)
+            let previewRect = batch.bookPreview.convert(batch.bookPreview.bounds, to: host)
+            try check(viewport.width > host.bounds.width * 0.88 && listRect.midY > previewRect.midY && previewRect.height > 300,
+                      "书单横跨窗口上方，原页和图书信息在下方并列")
             try check(batch.items.allSatisfy { !$0.included }, "选书与自动分析均不勾选未操作的图书")
             let normalSize = batch.window.contentView!.bounds.size
             batch.window.setContentSize(NSSize(width: 1040, height: 650))
@@ -80,10 +83,10 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.04))
             let narrowList = batch.table.enclosingScrollView!.frame.width
             let narrowPreview = batch.bookPreview.frame.width
-            guard narrowList > narrowPreview && narrowPreview >= 360 else {
+            guard narrowList > narrowPreview && narrowPreview >= 340 else {
                 throw ReaderFailure("窄窗口尺寸未通过，书单 \(narrowList)，预览 \(narrowPreview)")
             }
-            try check(true, "窄窗口仍优先保留书单且可预览")
+            try check(true, "窄窗口仍同时显示全宽书单与下方原页")
             batch.window.setContentSize(normalSize)
             batch.window.contentView?.layoutSubtreeIfNeeded()
             batch.finalName.stringValue = "手工文件名"
@@ -97,6 +100,14 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
                       "改书目信息只自动勾选当前图书")
 
             try check(batch.items[0].stem == "手工文件名", "修改书目字段后保留手工文件名")
+            try check(!batch.vectorPDF.isHidden && batch.vectorPDF.state == .off, "PDF精度不足时不自动加标记")
+            batch.vectorPDF.state = .on
+            batch.vectorChanged()
+            try check(batch.items[0].stem == "手工文件名【印前矢量】", "勾选矢量PDF更新最终文件名并保留手工名称")
+            batch.vectorPDF.state = .off
+            batch.vectorChanged()
+            try check(batch.items[0].stem == "手工文件名", "取消勾选移除末尾标记")
+
             let firstRow = batch.table.rect(ofRow: 0), secondRow = batch.table.rect(ofRow: 1)
             let start = batch.table.convert(NSPoint(x: 80, y: firstRow.midY), to: nil)
             let end = batch.table.convert(NSPoint(x: 135, y: secondRow.midY), to: nil)

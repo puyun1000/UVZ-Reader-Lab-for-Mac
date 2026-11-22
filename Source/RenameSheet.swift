@@ -3,6 +3,12 @@ import AppKit
 /// A single draft for book information, copyright OCR and naming.
 final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSplitViewDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextViewDelegate {
     let window = ChineseWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 880), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    let vectorPDF = NSButton(checkboxWithTitle: "矢量PDF", target: nil, action: nil)
+    private let precisionLabel = CenteredTextField(labelWithString: "")
+    private var precision: PDFPrecision.Result?
+    private var vectorOverride: Bool?
+    private var isPDF: Bool { book.url.pathExtension.lowercased() == "pdf" }
+    private var markedAtOpen: Bool { VectorFilename.hasMarker(book.url.deletingPathExtension().lastPathComponent) }
     let nameField = CenteredTextField(), templateField = CenteredTextField(), style = NSPopUpButton()
     let keys = BookMetadata.fields.filter { $0 != "摘要" }
     let fields: [NSTextField]
@@ -13,6 +19,7 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
     private let message = CenteredTextField(wrappingLabelWithString: "")
     private let pageField = CenteredTextField(string: "1")
     private let evidenceArea = NSView(), evidenceMode = NSSegmentedControl()
+    private let originalPreview = BatchBookPreview()
     let recognitionControls = RecognitionControls()
     private let recognizeButton = NSButton(title: "识别并交叉核对", target: nil, action: nil)
     private let saveButton = NSButton(title: "保存并重命名", target: nil, action: nil)
@@ -41,7 +48,7 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         values["出版日期"] = BookMetadata.date(values["出版日期"] ?? "")
         values["摘要"] = abstractView.string.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
         for (key, value) in custom { values[key.trimmingCharacters(in: .whitespacesAndNewlines)] = value }
-        return values
+        return BookMetadata.canonical(values)
     }
     init(book: BookArchive) {
         self.book = book
@@ -49,29 +56,29 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         fields = BookMetadata.fields.filter { $0 != "摘要" }.map { CenteredTextField(string: draft.values[$0] ?? "") }
         custom = draft.values.keys.filter { !BookMetadata.fields.contains($0) }.sorted().map { ($0, draft.values[$0]!) }
         super.init()
-        window.title = "书籍信息与重命名 — " + book.title
+        window.title = "图书信息与重命名 — " + book.title
         window.minSize = NSSize(width: 980, height: 790); window.isReleasedWhenClosed = false; window.delegate = self
         let host = NSView(); window.contentView = host
         let root = NSStackView(); root.orientation = .vertical; root.alignment = .leading; root.spacing = 10
         root.translatesAutoresizingMaskIntoConstraints = false; host.addSubview(root)
         NSLayoutConstraint.activate([root.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: 18), root.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -18), root.topAnchor.constraint(equalTo: host.topAnchor, constant: 16), root.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -16)])
-        let old = CenteredTextField(labelWithString: "当前文件：" + book.url.lastPathComponent); old.lineBreakMode = .byTruncatingMiddle; old.toolTip = book.url.path
+        let physical = isPDF ? " · PDF 物理 \(book.pages.count) 页" : ""
+        let old = CenteredTextField(labelWithString: "当前文件：" + book.url.lastPathComponent + physical); old.lineBreakMode = .byTruncatingMiddle; old.toolTip = book.url.path
         recognizeButton.target = self; recognizeButton.action = #selector(recognizeCopyright); recognizeButton.bezelStyle = .rounded
         pageField.widthAnchor.constraint(equalToConstant: 48).isActive = true
         let recognitionOptions = NSStackView(views:[CenteredTextField(labelWithString:"文字识别"),recognitionControls.language,recognitionControls.layout,NSView()]); recognitionOptions.spacing = 8
         let source = NSStackView(views: [recognizeButton, button("识别当前阅读页", #selector(recognizeCurrentPage)), CenteredTextField(labelWithString: "物理页"), pageField, button("识别此页", #selector(recognizeChosenPage)), NSView()]); source.spacing = 8
         for (key, field) in zip(keys, fields) { field.delegate = self; if key == "出版日期" { field.placeholderString = "YYYY.MM，例如 2026.03" } }
-        let grid = NSGridView(views: zip(keys, fields).map { [CenteredTextField(labelWithString: $0.0), $0.1] }); grid.columnSpacing = 12; grid.rowSpacing = 6; grid.column(at: 0).width = 68
+        let grid = NSGridView(views: zip(keys, fields).map { [CenteredTextField(labelWithString: BookMetadata.label($0.0)), $0.1] }); grid.columnSpacing = 12; grid.rowSpacing = 6; grid.column(at: 0).width = 92
         for row in keys.indices { grid.row(at: row).height = 26 }
-        grid.heightAnchor.constraint(equalToConstant: 282).isActive = true
         let abstract = ocrTextScroll(abstractView, editable: true); abstract.heightAnchor.constraint(equalToConstant: 64).isActive = true; abstractView.string = original["摘要"] ?? ""; abstractView.delegate = self
         for (key, label, width) in [("key", "自定义字段", 120.0), ("value", "内容", 300.0)] { let column = NSTableColumn(identifier: .init(key)); column.title = label; column.width = width; infoTable.addTableColumn(column) }
         infoTable.dataSource = self; infoTable.delegate = self; infoTable.rowHeight = 27; infoTable.usesAlternatingRowBackgroundColors = true; infoTable.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         let customScroll = NSScrollView(); customScroll.documentView = infoTable; customScroll.hasVerticalScroller = true; customScroll.heightAnchor.constraint(equalToConstant: 92).isActive = true
         let customTools = NSStackView(views: [button("新增字段", #selector(addInfo)), button("删除自定义字段", #selector(removeInfo)), NSView()]); customTools.spacing = 8
-        let form = NSStackView(views: [grid, CenteredTextField(labelWithString: "摘要"), abstract, customScroll, customTools]); form.orientation = .vertical; form.alignment = .leading; form.spacing = 8
+        let form = NSStackView(views: [grid, CenteredTextField(labelWithString: "内容提要"), abstract, customScroll, customTools]); form.orientation = .vertical; form.alignment = .leading; form.spacing = 8
         for view in [grid, abstract, customScroll, customTools] { view.widthAnchor.constraint(equalTo: form.widthAnchor, constant: -12).isActive = true }
-        evidenceMode.segmentCount = 3; evidenceMode.setLabel("比对结果", forSegment: 0); evidenceMode.setLabel("字段来源",forSegment:1); evidenceMode.setLabel("识别原文", forSegment: 2); evidenceMode.trackingMode = .selectOne; evidenceMode.selectedSegment = 0; evidenceMode.target = self; evidenceMode.action = #selector(evidenceChanged)
+        evidenceMode.segmentCount = 4; evidenceMode.setLabel("原页", forSegment: 3); evidenceMode.setLabel("比对结果", forSegment: 0); evidenceMode.setLabel("字段来源",forSegment:1); evidenceMode.setLabel("识别原文", forSegment: 2); evidenceMode.trackingMode = .selectOne; evidenceMode.selectedSegment = 3; evidenceMode.target = self; evidenceMode.action = #selector(evidenceChanged)
         let evidenceTools = NSStackView(views: [evidenceMode, NSView(), button("放大原文…", #selector(enlargeRecognition))]); evidenceTools.spacing = 8
         let extractionHint = CenteredTextField(wrappingLabelWithString: "自动比较已有信息与各页著录，优先采用明确且相互印证的内容。手工修改的字段保留；双击来源值可手动采用。保存前可撤回本次自动调整。")
         extractionHint.font = .systemFont(ofSize: 11); extractionHint.textColor = .secondaryLabelColor
@@ -82,7 +89,17 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         infoSplit.heightAnchor.constraint(greaterThanOrEqualToConstant: 350).isActive = true
         style.addItems(withTitles:namingStyles.map(\.title)+["自定义（未保存）"]); style.selectItem(at:namingStyles.firstIndex(where:{$0.id == NamingPreferences.preferred()}) ?? 0); style.target = self; style.action = #selector(styleChanged)
         style.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let generator = NSStackView(views: [CenteredTextField(labelWithString: "命名格式"), style, button("生成规范名称", #selector(generateName)),button("管理格式…",#selector(manageTemplates))]); generator.spacing = 8
+        vectorPDF.target = self
+        vectorPDF.action = #selector(vectorChanged)
+        vectorPDF.state = markedAtOpen ? .on : .off
+        vectorPDF.isHidden = !isPDF
+        precisionLabel.isHidden = !isPDF
+        precisionLabel.font = .systemFont(ofSize: 11)
+        precisionLabel.textColor = .secondaryLabelColor
+        precisionLabel.lineBreakMode = .byTruncatingTail
+        precisionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let generator = NSStackView(views: [CenteredTextField(labelWithString: "命名格式"), style, vectorPDF, button("生成规范名称", #selector(generateName)),button("管理格式…",#selector(manageTemplates))])
+        generator.spacing = 8
         templateField.stringValue = FilenameTemplate.presets[0]; templateField.delegate = self
         let hint = CenteredTextField(wrappingLabelWithString: "可用字段：" + BookMetadata.fields.map { "{" + $0 + "}" }.joined(separator: " ") + "。可编辑格式；扩展名保留为 ." + book.url.pathExtension)
         hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
@@ -97,7 +114,7 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         let infoButton = button("仅保存信息", #selector(saveInformation))
         let cancel = button("取消", #selector(close)); cancel.keyEquivalent = "\u{1b}"
         let bottom = NSStackView(views: [NSView(), cancel, infoButton, saveButton]); bottom.spacing = 10
-        for view in [old, source, recognitionOptions, infoSplit, generator, templateField, hint, filename, options, message, bottom] { root.addArrangedSubview(view); view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true }
+        for view in [old, source, recognitionOptions, infoSplit, generator, precisionLabel, templateField, hint, filename, options, message, bottom] { root.addArrangedSubview(view); view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true }
         if !book.canRename { nameField.isEnabled = false; style.isEnabled = false; templateField.isEnabled = false; saveButton.isHidden = true; message.stringValue = "PDG 文件夹可在此保存 BookInfo.dat；文件夹名称请在访达中修改。" }
         for (id,title,width) in [("field","字段",65.0),("value","来源值",250.0),("source","来源",100.0),("page","物理页",55.0)] { let c = NSTableColumn(identifier:.init(id)); c.title = title; c.width = width; sourceTable.addTableColumn(c) }
         sourceTable.delegate = self; sourceTable.dataSource = self; sourceTable.target = self; sourceTable.doubleAction = #selector(adoptSource); sourceTable.rowHeight = 28; sourceTable.usesAlternatingRowBackgroundColors = true
@@ -109,18 +126,49 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
         let selected = selectedStyleID; namingStyles = updated; style.removeAllItems(); style.addItems(withTitles:updated.map(\.title)+["自定义（未保存）"])
         style.selectItem(at:selected == "draft" ? updated.count : updated.firstIndex(where:{$0.id == selected}) ?? 0); refreshName()
     }
+    @objc private func vectorChanged() {
+        vectorOverride = vectorPDF.state == .on
+        updateVectorName()
+    }
+
+    private func updateVectorName() {
+        let marked = vectorOverride ?? (markedAtOpen || precision?.kind == .vector)
+        vectorPDF.state = marked ? .on : .off
+        if vectorOverride != nil { precisionLabel.stringValue = "人工选择 · " + (precision?.detail ?? "正在检查页面精度") }
+        else { precisionLabel.stringValue = precision?.detail ?? "正在检查页面精度" }
+        precisionLabel.toolTip = precisionLabel.stringValue
+        if isPDF { nameField.stringValue = VectorFilename.render(nameField.stringValue, marked: marked) }
+    }
+
     func prepareForDisplay() {
+        if isPDF {
+            let url = book.url
+            updateVectorName()
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let result = (try? NamingSource(url))?.pdf.map { PDFPrecision.inspect($0) }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.closed else { return }
+                    self.precision = result ?? .init(kind: .uncertain, samplePages: [], rasterPages: [], estimatedImageDPI: nil)
+                    self.updateVectorName()
+                }
+            }
+        }
+        originalPreview.load(book.url, page: currentPage)
         window.contentView?.layoutSubtreeIfNeeded(); infoSplit.setPosition(infoSplit.bounds.width * 0.53, ofDividerAt: 0); pageField.integerValue = currentPage + 1
         if AppSettings().metadataOCR, book.pages.contains(where: { $0.key.group == 2 }) { recognizeCopyright() }
     }
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { 400 }
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { splitView.bounds.width - 330 }
     func controlTextDidChange(_ notification: Notification) {
-        if notification.object as? NSTextField === templateField { style.selectItem(at:namingStyles.count) }
+        if notification.object as? NSTextField === templateField { style.selectItem(at:namingStyles.count); refreshName() }
         if notification.object as? NSTextField === nameField { nameEdited = true }
         if let field = notification.object as? NSTextField, let index = fields.firstIndex(where: { $0 === field }) { editedKeys.insert(keys[index]); refreshName() }
     }
     func controlTextDidEndEditing(_ notification: Notification) {
+        if let field = notification.object as? NSTextField, let index = fields.firstIndex(where: { $0 === field }), keys[index] == "作者" {
+            field.stringValue = BookMetadata.author(field.stringValue)
+            return
+        }
         guard let field = notification.object as? EditorField, custom.indices.contains(field.row) else { return }
         if field.column == "key" { custom[field.row].0 = field.stringValue } else { custom[field.row].1 = field.stringValue }
     }
@@ -141,11 +189,11 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
     @objc func styleChanged() { if selectedStyleID != "draft" { AppSettings().set(selectedStyleID,"namingStyle") }; nameEdited = false; refreshName() }
     private func refreshName() {
         if selectedStyleID != "draft" { templateField.stringValue = selectedPattern }
-        if !nameEdited,let name = try? FilenameTemplate.render(selectedPattern,metadata:metadataSnapshot) { nameField.stringValue = name }
+        if !nameEdited,let name = try? FilenameTemplate.render(selectedPattern,metadata:metadataSnapshot) { nameField.stringValue = name; if isPDF { updateVectorName() } }
     }
     @objc func generateName() {
         window.makeFirstResponder(nil)
-        do { nameField.stringValue = try FilenameTemplate.render(selectedPattern,metadata:metadataSnapshot); nameEdited = false; message.textColor = .secondaryLabelColor; message.stringValue = "规范名称已更新，保存后生效。自定义格式可在“管理格式”中保存。" }
+        do { nameField.stringValue = try FilenameTemplate.render(selectedPattern,metadata:metadataSnapshot); if isPDF { updateVectorName() }; nameEdited = false; message.textColor = .secondaryLabelColor; message.stringValue = "规范名称已更新，保存后生效。自定义格式可在“管理格式”中保存。" }
         catch { show(error) }
     }
     @objc func manageTemplates() {
@@ -173,9 +221,19 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
     }
     @objc func evidenceChanged() {
         evidenceArea.subviews.forEach { $0.removeFromSuperview() }
-        let scroll: NSScrollView
-        if evidenceMode.selectedSegment == 1 { scroll = NSScrollView(); scroll.documentView = sourceTable; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.borderType = .bezelBorder }
-        else { scroll = evidenceMode.selectedSegment == 0 ? ocrTextScroll(extractionText,editable:false) : ocrTextScroll(recognitionText,editable:true) }
+        let scroll: NSView
+        switch evidenceMode.selectedSegment {
+        case 1:
+            let tableScroll = NSScrollView()
+            tableScroll.documentView = sourceTable
+            tableScroll.hasVerticalScroller = true
+            tableScroll.hasHorizontalScroller = true
+            tableScroll.borderType = .bezelBorder
+            scroll = tableScroll
+        case 3: scroll = originalPreview
+        case 0: scroll = ocrTextScroll(extractionText, editable: false)
+        default: scroll = ocrTextScroll(recognitionText, editable: true)
+        }
         scroll.translatesAutoresizingMaskIntoConstraints = false; evidenceArea.addSubview(scroll)
         NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo: evidenceArea.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: evidenceArea.trailingAnchor), scroll.topAnchor.constraint(equalTo: evidenceArea.topAnchor), scroll.bottomAnchor.constraint(equalTo: evidenceArea.bottomAnchor)])
     }
@@ -246,6 +304,7 @@ final class RenameSheet: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSSpli
             let keep = preserveDates.state == .on
             busy = true
             defer { busy = false }
+            if rename && isPDF { updateVectorName() }
             try onRename?(rename ? nameField.stringValue : book.url.deletingPathExtension().lastPathComponent, metadata, keep)
             AppSettings().set(keep, "preserveFileDates"); busy = false; close()
         } catch { show(error) }

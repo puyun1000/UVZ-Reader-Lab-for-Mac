@@ -44,7 +44,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
     private(set) var adjustmentWindow: PageAdjustmentWindow?
     private let editPagesButton = NSButton(title: "调整页面…", target: nil, action: nil)
     private let onlineButton = NSButton(title: "补书签…", target: nil, action: nil)
-    private let renameButton = NSButton(title: "书籍信息与重命名…", target: nil, action: nil)
+    private let renameButton = NSButton(title: "图书信息与重命名…", target: nil, action: nil)
     private(set) var renameSheet: RenameSheet?
     private let rtlButton = NSButton(checkboxWithTitle: "从右至左", target: nil, action: nil)
     private let fitPopup = NSPopUpButton()
@@ -174,7 +174,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         auditButton.target = self; auditButton.action = #selector(repairPages); auditButton.bezelStyle = .inline; auditButton.contentTintColor = .systemOrange; auditButton.isHidden = true
         readingControls.append(repairButton)
         inspectionQueue.maxConcurrentOperationCount = 1; inspectionQueue.qualityOfService = .utility
-        renameButton.title="图书信息…";renameButton.image=NSImage(systemSymbolName:"info.circle",accessibilityDescription:"书籍信息与重命名");renameButton.imagePosition = .imageLeading
+        renameButton.title="图书信息…";renameButton.image=NSImage(systemSymbolName:"info.circle",accessibilityDescription:"图书信息与重命名");renameButton.imagePosition = .imageLeading
         repairButton.title="页面校对…"
         onlineButton.target = self
         onlineButton.action = #selector(supplementBookmarks)
@@ -856,7 +856,7 @@ final class ReaderController: NSResponder, NSWindowDelegate, NSOutlineViewDataSo
         add("上一页",#selector(previousPage));add("下一页",#selector(nextPage));menu.addItem(.separator())
         add("适合宽度",#selector(fitWidth));add("适合高度",#selector(fitHeight));add("适合整页",#selector(fitWhole));add("原始大小",#selector(actualSize));menu.addItem(.separator())
         add("单独查看与导出图像…",#selector(viewPageImage));add("复制页面图像",#selector(copyContextPage));add("框选识别目录…",#selector(recognizeContextRegion));menu.addItem(.separator())
-        add("编辑目录…",#selector(editBook));add("书籍信息与重命名…",#selector(editInfo));add("复制图书路径",#selector(copyBookPath));return menu
+        add("编辑目录…",#selector(editBook));add("图书信息与重命名…",#selector(editInfo));add("复制图书路径",#selector(copyBookPath));return menu
     }
     @objc private func viewPageImage(_ item:NSMenuItem) {
         guard let book else{return}

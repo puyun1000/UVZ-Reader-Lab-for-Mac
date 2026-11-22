@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='uvz-rules013-') as td:
 
  for label,text,wanted in [
  ('traditional labels','書名：古籍文獻研究\n作者：張明\n出版者：中華書局\n出版日期：2021年4月\n頁數：268頁',{'书名':'古籍文獻研究','作者':'張明','出版社':'中華書局','出版日期':'2021.04','页数':'268'}),
- ('Japanese labels','タイトル：日本の古典文学\n著者：山田太郎\nシリーズ：日本文学研究\n発行所：東京書房\n発行日：2020年4月1日\nページ数：268',{'书名':'日本の古典文学','作者':'山田太郎','出版社':'東京書房','出版日期':'2020.04','丛书名':'日本文学研究','页数':'268'}),
+ ('Japanese labels','タイトル：日本の古典文学\n著者：山田太郎\nシリーズ：日本文学研究\n発行所：東京書房\n発行日：2020年4月1日\nページ数：268',{'书名':'日本の古典文学','作者':'山田太郎著','出版社':'東京書房','出版日期':'2020.04','丛书名':'日本文学研究','页数':'268'}),
  ('English labels','Title: Studies in Asian History\nAuthor: Alice Brown\nPublisher: Example Press\nPublication date: 2020.04',{'书名':'Studies in Asian History','作者':'Alice Brown','出版社':'Example Press','出版日期':'2020.04'}),
  ('Taiwan prepublication CIP','國家圖書館出版品預行編目(CIP)資料\n臺灣文化研究 / 張明著. -- 初版. -- 臺北市 : 示例書局, 民國110年4月\nISBN 9780306406157',{'书名':'臺灣文化研究','作者':'張明著','出版社':'示例書局','出版日期':'2021.04'})]:
   raw.write_text(text);out=json.loads(subprocess.check_output([exe,'--extract-metadata',str(raw)]));assert all(out['metadata'].get(k)==v for k,v in wanted.items()),(label,out,wanted);checks.append(label)

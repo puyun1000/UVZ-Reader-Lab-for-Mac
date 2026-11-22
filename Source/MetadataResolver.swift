@@ -55,7 +55,13 @@ enum MetadataResolver {
             let canReplace = old.isEmpty || !usable(key,old) || agrees || (!explicit.isEmpty && (!trustedOriginal || (explicit.count>=2 && score(best)>=originalScore+3)))
             if canReplace {
                 // Keep existing spelling and author-role style when equivalent; enrich a year with a known month.
-                if agrees && !(key == "出版日期" && old.count == 4 && preferred.count == 7) { preferred = old }
+                let richerAuthor = key == "作者" &&
+                    BookMetadata.captures(BookMetadata.creditRole + #"[，；]|"# + BookMetadata.creditRole + "$", old).isEmpty
+                if richerAuthor, agrees, let withRole = explicit.first(where: {
+                    !BookMetadata.captures(BookMetadata.creditRole + #"[，；]|"# + BookMetadata.creditRole + "$", BookMetadata.author($0.value)).isEmpty
+                }) { preferred = withRole.value }
+                else if agrees && !(key == "出版日期" && old.count == 4 && preferred.count == 7) { preferred = old }
+                if key == "作者" { preferred = BookMetadata.author(preferred) }
                 values[key] = preferred
                 let sourceNames = Array(Set(explicit.map(\.source))).sorted().joined(separator:"、")
                 explanations[key] = preferred == old ? (sourceNames.isEmpty ? "保留原有信息" : "与"+sourceNames+"一致") : (sourceNames.isEmpty ? "版面推测，需核对" : "采用"+sourceNames+(explicit.count>=2 ? "的共同结果" : "的明确著录"))

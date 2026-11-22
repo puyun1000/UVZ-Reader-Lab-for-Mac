@@ -11,6 +11,7 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
     init(folder:URL,output:URL){self.folder=folder;self.output=output;super.init();savedSidebar=defaults.object(forKey:"reading.sidebarWidth")}
     func applicationDidFinishLaunching(_ notification:Notification) {
         guard folder.lastPathComponent.hasPrefix("uvz-workflow017-") else {finish("需要临时测试书籍目录。");return}
+        defaults.set(260.0, forKey: "reading.sidebarWidth")
         reader=ReaderController();reader.smokeMode=true;reader.includePageNumbers=false
         do {let book=try FileManager.default.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil).first {$0.pathExtension=="uvz"}!;reader.open(book)}catch {finish(error.localizedDescription);return}
         tick()
