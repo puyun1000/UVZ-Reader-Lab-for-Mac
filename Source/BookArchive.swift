@@ -13,6 +13,9 @@ private func crc32Bytes(_ bytes: UnsafePointer<UInt8>, _ count: Int) -> UInt32
 @_silgen_name("lab_inflate_zlib")
 private func inflateZlib(_ source: UnsafePointer<UInt8>, _ count: Int,
                          _ destination: UnsafeMutablePointer<UInt8>, _ capacity: Int) -> Int
+@_silgen_name("lab_inflate_contents_without_adler")
+private func inflateContentsWithoutAdler(_ source: UnsafePointer<UInt8>, _ count: Int,
+                                         _ destination: UnsafeMutablePointer<UInt8>, _ capacity: Int) -> Int
 @_silgen_name("lab_inflate_prefix")
 private func inflatePrefix(_ source: UnsafePointer<UInt8>, _ count: Int, _ destination: UnsafeMutablePointer<UInt8>, _ capacity: Int) -> Int
 
@@ -358,12 +361,16 @@ final class BookArchive {
         if raw.starts(with: Data("SSCNTS".utf8)) {
             guard raw.count > 40 else { throw ReaderFailure("电子目录压缩头被截断。") }
             let packed = raw.subdata(in: 40..<raw.count)
+            let isPdgCntEditor = raw[12..<32].elementsEqual("Made by PdgCntEditor".utf8)
             var output = Data(count: 2 * 1024 * 1024)
             let capacity = output.count
             let size = output.withUnsafeMutableBytes { (dst: UnsafeMutableRawBufferPointer) in
                 packed.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
-                    inflateZlib(src.baseAddress!.assumingMemoryBound(to: UInt8.self), packed.count,
-                                dst.baseAddress!.assumingMemoryBound(to: UInt8.self), capacity)
+                    let source = src.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    let destination = dst.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    let standardLength = inflateZlib(source, packed.count, destination, capacity)
+                    guard standardLength < 0, isPdgCntEditor else { return standardLength }
+                    return inflateContentsWithoutAdler(source, packed.count, destination, capacity)
                 }
             }
             guard size >= 0, size <= capacity else { throw ReaderFailure("电子目录解压失败或超过 2 MB。") }
@@ -643,9 +650,36 @@ extension BookArchive {
         if preserveDates { try sourceDates.restore(to: url) }
         return backups
     }
+    private static func zipTimestamp(_ date: Date) -> (dos: Data, extra: Data) {
+        let calendar = Calendar(identifier: .gregorian)
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        let year = parts.year ?? 1980
+        var dos = Data()
+        if year < 1980 {
+            dos.put16(0); dos.put16(0x0021) // 1980-01-01
+        } else if year > 2107 {
+            dos.put16(0xbf7d); dos.put16(0xff9f) // 2107-12-31 23:59:58
+        } else {
+            let hour = parts.hour ?? 0, minute = parts.minute ?? 0, second = parts.second ?? 0
+            let month = parts.month ?? 1, day = parts.day ?? 1
+            dos.put16(UInt16((hour << 11) | (minute << 5) | (second / 2)))
+            dos.put16(UInt16(((year - 1980) << 9) | (month << 5) | day))
+        }
+        // The extended timestamp stores the same modification time in UTC
+        // with one-second resolution. Older readers can use the DOS fields.
+        var extra = Data()
+        if let seconds = Int32(exactly: date.timeIntervalSince1970.rounded(.down)) {
+            extra.put16(0x5455); extra.put16(5); extra.append(1)
+            extra.put32(UInt32(bitPattern: seconds))
+        }
+        return (dos, extra)
+    }
+
     private func rewrittenArchive(replacements: [String:Data], renames: [String:String] = [:], files: [String:URL] = [:], stream: FileHandle? = nil, checkpoint: () throws -> Void = {}) throws -> Data {
         let names = Array(replacements.keys) + Array(files.keys)
         let replaced = Set(names.map { $0.lowercased() })
+        let timestamp = Self.zipTimestamp(Date())
+        let extraLength = UInt16(timestamp.extra.count)
         var output = Data(), central = Data(), count = 0, position = 0
         func emit(_ data: Data) throws {
             guard data.count <= Int(UInt32.max) - position else { throw ReaderFailure("编辑后需要 ZIP64，暂不能保存。") }
@@ -658,12 +692,13 @@ extension BookArchive {
             let offset = UInt32(position)
             var local = Data()
             local.put32(0x04034b50); local.put16(20); local.put16(0x0800); local.put16(method)
-            local.put16(0); local.put16(0); local.put32(crc); local.put32(UInt32(packed.count)); local.put32(UInt32(size))
-            local.put16(UInt16(utf8.count)); local.put16(0); local.append(utf8)
+            local.append(timestamp.dos); local.put32(crc); local.put32(UInt32(packed.count)); local.put32(UInt32(size))
+            local.put16(UInt16(utf8.count)); local.put16(extraLength); local.append(utf8); local.append(timestamp.extra)
             try emit(local); try emit(packed)
             central.put32(0x02014b50); central.put16(20); central.put16(20); central.put16(0x0800); central.put16(method)
-            central.put16(0); central.put16(0); central.put32(crc); central.put32(UInt32(packed.count)); central.put32(UInt32(size))
-            central.put16(UInt16(utf8.count)); central.put16(0); central.put16(0); central.put16(0); central.put16(0); central.put32(name.hasSuffix("/") ? 16 : 0); central.put32(offset); central.append(utf8)
+            central.append(timestamp.dos); central.put32(crc); central.put32(UInt32(packed.count)); central.put32(UInt32(size))
+            central.put16(UInt16(utf8.count)); central.put16(extraLength); central.put16(0); central.put16(0); central.put16(0)
+            central.put32(name.hasSuffix("/") ? 16 : 0); central.put32(offset); central.append(utf8); central.append(timestamp.extra)
             count += 1
         }
         for entry in entries where !replaced.contains(entry.name.lowercased()) {

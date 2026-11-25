@@ -1,6 +1,6 @@
 """Information-only saves, companion moves, dates and structured copyright extraction."""
 from pathlib import Path
-import io, json, os, subprocess, tempfile, time, zipfile
+import io, json, os, subprocess, tempfile, time, zipfile, struct
 from PIL import Image
 from pypdf import PdfWriter
 
@@ -21,17 +21,34 @@ def dates(path):
 def unchanged_dates(path, before):
     assert all(abs(a-b) < 0.001 for a,b in zip(dates(path), before)), (dates(path), before)
 
+def fresh_timestamp(archive, name, start):
+    entry = archive.getinfo(name)
+    assert start - 2 <= time.mktime((*entry.date_time, 0, 0, -1)) <= time.time() + 1, entry.date_time
+    kind, size, flags, modified = struct.unpack('<HHBI', entry.extra)
+    assert (kind, size, flags) == (0x5455, 5, 1)
+    assert start - 1 <= modified <= time.time() + 1, modified
+    archive.fp.seek(entry.header_offset + 10)
+    dos_time, dos_date = struct.unpack('<HH', archive.fp.read(4))
+    year, month, day, hour, minute, second = entry.date_time
+    assert dos_time == (hour << 11) | (minute << 5) | (second // 2)
+    assert dos_date == ((year - 1980) << 9) | (month << 5) | day
+    archive.fp.seek(entry.header_offset + 26)
+    name_length, extra_length = struct.unpack('<HH', archive.fp.read(4))
+    archive.fp.read(name_length)
+    assert archive.fp.read(extra_length) == entry.extra
+
 def main():
     checks = []
     with tempfile.TemporaryDirectory(prefix='uvz-info07-') as folder:
         folder = Path(folder); png = io.BytesIO(); Image.new('RGB', (120,180), 'white').save(png, 'PNG')
-        book = folder/'原书名_12345678.zip'
+        book = folder/'原书名_12345678.uvz'
+        old_member_date = (2001, 2, 3, 4, 5, 6)
         contents = '第一章|01|1|0|6\r\n子目录|0101|2|0|6\r\n'.encode('gb18030')
         with zipfile.ZipFile(book,'w',zipfile.ZIP_DEFLATED) as z:
             for name in ['cov001','bok001','leg001','fow001','!00001','000001','000002']:
-                z.writestr(name+'.pdg', png.getvalue())
-            z.writestr('Bookcontents.dat', contents)
-            z.writestr('BookInfo.dat','书名=原书名\r\n未知字段=原样保留'.encode('gb18030'))
+                z.writestr(zipfile.ZipInfo(name+'.pdg', old_member_date), png.getvalue())
+            z.writestr(zipfile.ZipInfo('Bookcontents.dat', old_member_date), contents)
+            z.writestr(zipfile.ZipInfo('BookInfo.dat', old_member_date),'书名=原书名\r\n未知字段=原样保留'.encode('gb18030'))
         os.utime(book, (1_500_000_000,1_500_000_000)); before_dates = dates(book)
         report = run('--inspect', book)
         assert report['fallbackNavigation'] == ['封面','书名','版权','前言','目录','第一章']
@@ -74,20 +91,34 @@ def main():
         change = folder/'change.json'
         metadata = dict(report['metadata'], ISBN='9780306406157',作者='测试作者',出版日期='2026.03',丛书名='研究丛书')
         change.write_text(json.dumps(dict(stem='新书名',metadata=metadata),ensure_ascii=False))
+        saving_at = time.time()
         renamed = Path(run('--update-information',book,change)['path'])
-        assert renamed.name=='新书名.zip' and not book.exists()
+        assert renamed.name=='新书名.uvz' and not book.exists()
         unchanged_dates(renamed,before_dates)
         with zipfile.ZipFile(renamed) as z:
             assert z.read('Bookcontents.dat')==contents
-            for name in ['cov001','bok001','leg001','fow001','!00001','000001','000002']: assert z.read(name+'.pdg')==png.getvalue()
+            assert z.getinfo('Bookcontents.dat').date_time == old_member_date
+            fresh_timestamp(z, 'BookInfo.dat', saving_at)
+            for name in ['cov001','bok001','leg001','fow001','!00001','000001','000002']:
+                assert z.read(name+'.pdg')==png.getvalue()
+                assert z.getinfo(name+'.pdg').date_time == old_member_date
+        checks.append('信息保存写入 BookInfo 的实际时间，其他 ZIP 条目的日期保留')
         reread=run('--inspect',renamed)
         assert reread['metadata']==metadata and len(reread['chapters'])==2
         checks.append('信息保存和改名保留外部创建修改日期、原始目录字节、图像与自定义字段')
         # A directory save must preserve even the original metadata encoding and bytes.
-        with zipfile.ZipFile(renamed) as z: original_info=z.read('BookInfo.dat')
+        with zipfile.ZipFile(renamed) as z:
+            original_info=z.read('BookInfo.dat')
+            original_info_entry=z.getinfo('BookInfo.dat')
         draft=folder/'draft.json'; draft.write_text(json.dumps(dict(chapters=[dict(title='只改目录',page=6,level=0)],metadata={'书名':'不应写入'})))
+        saving_at = time.time()
         run('--apply-draft',renamed,draft,'--contents-only')
-        with zipfile.ZipFile(renamed) as z: assert z.read('BookInfo.dat')==original_info
+        with zipfile.ZipFile(renamed) as z:
+            assert z.read('BookInfo.dat')==original_info
+            entry=z.getinfo('BookInfo.dat')
+            assert (entry.date_time, entry.extra)==(original_info_entry.date_time, original_info_entry.extra)
+            fresh_timestamp(z, 'Bookcontents.dat', saving_at)
+        checks.append('目录保存写入 Bookcontents 的实际时间，BookInfo 原时间保留')
         unchanged_dates(renamed,before_dates)
         checks.append('独立目录保存不重写 BookInfo，且保留日期')
         # Turning off date preservation must update modification date.

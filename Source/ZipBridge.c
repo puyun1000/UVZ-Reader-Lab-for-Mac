@@ -37,6 +37,28 @@ long lab_inflate_zlib(const uint8_t *input, size_t input_size,
     return result == Z_OK ? (long)length : -1;
 }
 
+// Some PdgCntEditor directories end at the last DEFLATE block. Accept this
+// layout only with a valid zlib header and no bytes after the complete block.
+long lab_inflate_contents_without_adler(const uint8_t *input, size_t input_size,
+                                        uint8_t *output, size_t capacity) {
+    if (input_size <= 2 || input_size > UINT_MAX || capacity > UINT_MAX) return -1;
+    unsigned cmf = input[0], flg = input[1];
+    unsigned window = cmf >> 4;
+    if ((cmf & 0x0f) != Z_DEFLATED || window > 7 || ((cmf << 8) | flg) % 31 != 0
+        || (flg & 0x20) != 0) return -1;
+
+    z_stream stream = {0};
+    stream.next_in = (Bytef *)input + 2;
+    stream.avail_in = (uInt)(input_size - 2);
+    stream.next_out = output;
+    stream.avail_out = (uInt)capacity;
+    if (inflateInit2(&stream, -((int)window + 8)) != Z_OK) return -1;
+    int result = inflate(&stream, Z_FINISH);
+    long length = result == Z_STREAM_END && stream.avail_in == 0 ? (long)stream.total_out : -1;
+    inflateEnd(&stream);
+    return length;
+}
+
 long lab_inflate_prefix(const uint8_t *input, size_t input_size,
                         uint8_t *output, size_t capacity) {
     if (input_size > UINT_MAX || capacity > UINT_MAX) return -1;

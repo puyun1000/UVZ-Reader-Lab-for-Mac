@@ -84,6 +84,41 @@ def main():
         assert result.returncode != 0 and compressed.read_bytes() == unchanged, result.stderr
         passed.append('保存保留原失配页号并拒绝新失配页号，原件不被部分替换')
 
+        editor_header = b'SSCNTS' + bytes(6) + b'Made by PdgCntEditor' + bytes(8)
+        source_text = contents_text.replace('\r\n', '|\r\n').encode('gb18030')
+        stream = zlib.compress(source_text)
+        payload = [('000001.pdg', PNG), ('000002.pdg', PNG), ('BookInfo.dat', b'SS=12345678')]
+        editor_contents = root / 'editor-contents.uvz'
+        write(editor_contents, payload + [('BookContents.dat', editor_header + stream[:-4])])
+        code, out, err = run(editor_contents)
+        assert code == 0, err
+        assert json.loads(out)['chapters'] == report['chapters']
+        edit.write_text(json.dumps({'chapters': rows[:2] + [dict(rows[-1], unresolvedTarget='999')], 'metadata': {}}))
+        result = subprocess.run([str(EXECUTABLE), '--apply-draft', str(editor_contents), str(edit), '--contents-only'], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        code, out, err = run(editor_contents)
+        assert code == 0 and json.loads(out)['chapters'][0]['title'] == '校订标题', (out, err)
+        with zipfile.ZipFile(editor_contents) as archive:
+            assert all(archive.read(name) == data for name, data in payload)
+            assert [name for name in archive.namelist() if name.lower() == 'bookcontents.dat'] == ['Bookcontents.dat']
+        passed.append('保留缺少 Adler-32 的完整 PdgCntEditor 目录，支持编辑、保存和回读')
+
+        for name, data in [
+            ('deflate-truncated', editor_header + stream[:-5]),
+            ('wrong-adler', editor_header + stream[:-1] + bytes([stream[-1] ^ 1])),
+            ('adler-truncated', editor_header + stream[:-2]),
+            ('padded', editor_header + stream[:-4] + b'\x00'),
+            ('unknown-producer', compressed_data[:-4]),
+        ]:
+            invalid = root / f'{name}.uvz'
+            write(invalid, payload + [('Bookcontents.dat', data)])
+            before = invalid.read_bytes()
+            code, out, err = run(invalid)
+            assert code == 0 and '未能读取' in json.loads(out)['contentsNotice'], (name, out, err)
+            result = subprocess.run([str(EXECUTABLE), '--apply-draft', str(invalid), str(edit), '--contents-only'], capture_output=True, text=True)
+            assert result.returncode != 0 and invalid.read_bytes() == before, (name, result.stderr)
+        passed.append('拒绝损坏或截断的 SSCNTS，原目录字节保持不变')
+
         damaged = root / 'unreadable-contents.zip'
         write(damaged, [('000001.pdg', PNG), ('Bookcontents.dat', b'broken\r\n')])
         unchanged = damaged.read_bytes()

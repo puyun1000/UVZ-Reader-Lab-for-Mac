@@ -155,7 +155,7 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 NativeDialog.present(info.window, on: reader.window)
                 info.prepareForDisplay()
                 stage = 7
-            default:
+            case 7:
                 guard let info = naming, info.originalPreview.canvas.hasPage else { tick(); return }
                 let host = info.window.contentView!
                 host.layoutSubtreeIfNeeded()
@@ -177,6 +177,26 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 try check(info.metadataSnapshot["数字版次"] == "第1版" && !info.nameField.stringValue.contains("版"),
                           "单本从原页区采用第一版，文件名省略版次")
                 try captureWorkflowWindow(info.window, to: output.deletingPathExtension().appendingPathExtension("single.png"))
+                info.close()
+                guard let url = batch?.items.first?.url else { throw ReaderFailure("缺少测试用 UVZ") }
+                reader.open(url)
+                stage = 8
+            case 8:
+                guard reader.hasRenderedImage, let book = reader.book, book.url == batch?.items.first?.url else {tick();return}
+                try check(PageInspection.structural(book).contains { $0.id == "gap:5:4" },
+                          "正文断号仍有独立的页面校对提示")
+                reader.editBook()
+                guard let controller = reader.editor else { throw ReaderFailure("无法打开目录编辑") }
+                try check(controller.canSave && controller.textView.string.contains("原目录"),
+                          "带页面校对提示的 PdgCntEditor 目录正常载入，保存可用")
+                controller.textView.string = controller.textView.string.replacingOccurrences(of: "原目录", with: "修订目录")
+                controller.saveDraft()
+                stage = 9
+            default:
+                guard reader.editor == nil, let book = reader.book,
+                      book.chapters.map(\.title) == ["自定前言", "修订目录"] else {tick();return}
+                try check(book.pages.count == 8 && book.contentsNotice == nil,
+                          "目录编辑保存后自动重读，页数及原前言书签保留")
                 finish();return
             }
             tick()
