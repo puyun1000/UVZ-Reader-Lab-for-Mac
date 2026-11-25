@@ -1,7 +1,42 @@
 {
-  "auditedOn": "2026-11-22",
+  "auditedOn": "2026-11-25",
   "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
   "versions": [
+    {
+      "version": "0.28.2",
+      "status": "original-release",
+      "sourceCommit": "66972ca3c612da7023771c7d9bd743a63481a8f6",
+      "releaseId": 457882292,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.28.2",
+      "publishedAt": "2026-11-25T09:21:40Z",
+      "releaseNotes": "- 修复部分 PdgCntEditor 写入的压缩目录无法读取、编辑或保存的问题。重新打开图书即可载入原目录后编辑。\n- 页面断号等校对提示可独立查看。真正损坏或截断的旧目录继续受到覆盖保护。\n- 保存 UVZ／ZIP 的图书信息或目录时，新写入的 BookInfo.dat 或 Bookcontents.dat 记录实际保存时间。外层文件日期仍按“保持文件日期”处理。\n通过 448 项功能检查、98 项原生界面检查和 13 项 Quick Look 控制器检查。\n\n适用于 Apple 芯片 Mac、macOS 14 或更新版本。临时签名，未经 Apple 公证。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.28.2-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "1746950d576789fefeb59999bcdf90d0ed650a7e75fd164e5ca521d81a4edba4",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.2/UVZReaderLab-0.28.2-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.28.2-macOS-arm64.dmg",
+          "bytes": 13452052,
+          "sha256": "7d47ffa3ce7b82ee05ae261c602c944128d8fc73da27a88b3f813350264eba9b",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.2/UVZReaderLab-0.28.2-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.28.2-verification.json",
+          "bytes": 2227,
+          "sha256": "4ceb50a750621067507568effc795a6ffceb3f63e5fcdd2cde72a692c19a8750",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.2/UVZReaderLab-0.28.2-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.28.2.zip",
+          "bytes": 20711002,
+          "sha256": "8833a7bcd6678469acfa8c60e52dc86f02fdd8a6808884587291a98d52d4a062",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.2/UVZReaderLab-0.28.2.zip"
+        }
+      ]
+    },
     {
       "version": "0.28.1",
       "status": "original-release",
