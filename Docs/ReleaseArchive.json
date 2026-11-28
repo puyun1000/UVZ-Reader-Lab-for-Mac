@@ -1,7 +1,42 @@
 {
-  "auditedOn": "2026-11-25",
+  "auditedOn": "2026-11-28",
   "repository": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac",
   "versions": [
+    {
+      "version": "0.28.3",
+      "status": "original-release",
+      "sourceCommit": "0aa2a356fc0820db105d8cb01a9d395415228aa1",
+      "releaseId": 461280927,
+      "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/tag/v0.28.3",
+      "publishedAt": "2026-11-28T03:50:55Z",
+      "releaseNotes": "- 修复批量规范命名切换到 UVZ 等非 PDF 图书时，右侧图书信息可能只剩标题的问题。缩小窗口、展开书单和切换格式时均保留可滚动的表单。\n- 右侧图书信息会提示尚未分析、正在分析或读取失败的原因。\n通过 448 项功能检查、102 项原生界面检查和 13 项 Quick Look 控制器检查。\n\n适用于 Apple 芯片 Mac、macOS 14 或更新版本。临时签名，未经 Apple 公证。\n",
+      "assets": [
+        {
+          "name": "UVZReaderLab-0.28.3-SHA256SUMS.txt",
+          "bytes": 296,
+          "sha256": "89d65e85829069b522553587b996aaa0c4eb0765ea70368c6cc7981a0f58fdd8",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.3/UVZReaderLab-0.28.3-SHA256SUMS.txt"
+        },
+        {
+          "name": "UVZReaderLab-0.28.3-macOS-arm64.dmg",
+          "bytes": 13467637,
+          "sha256": "981ea3c78cc537a273fe1b4d754e8aa35f46e890d7191274119a9777fb67f8f8",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.3/UVZReaderLab-0.28.3-macOS-arm64.dmg"
+        },
+        {
+          "name": "UVZReaderLab-0.28.3-verification.json",
+          "bytes": 2277,
+          "sha256": "51cf1e6cce9c7f4d254d2d328bcaf70fc1a8ea428fc3d6767b2cf8500d806a72",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.3/UVZReaderLab-0.28.3-verification.json"
+        },
+        {
+          "name": "UVZReaderLab-0.28.3.zip",
+          "bytes": 20716672,
+          "sha256": "03f88ec0fe737a44621289c243545398c98c7bf879889ed308c8cf1380a698d4",
+          "url": "https://github.com/puyun1000/UVZ-Reader-Lab-for-Mac/releases/download/v0.28.3/UVZReaderLab-0.28.3.zip"
+        }
+      ]
+    },
     {
       "version": "0.28.2",
       "status": "original-release",
