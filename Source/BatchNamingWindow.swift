@@ -199,13 +199,15 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
     private let stopButton = NSButton(title:"停止",target:nil,action:nil)
     private let supplementButton = NSButton(title: "补书签…", target: nil, action: nil)
     private let inclusionSummary = CenteredTextField(labelWithString: "已勾选 0 本")
-    private let originalName = CenteredTextField(wrappingLabelWithString: "")
+    private let originalName = CenteredTextField(labelWithString: "")
+    let analysisStatus = CenteredTextField(wrappingLabelWithString: "")
     private let nameExtension = CenteredTextField(labelWithString: "")
     private let sources = NSPopUpButton()
     private weak var detailScroll: FormScrollView?
     private let split = NSSplitView()
     private let comparisonSplit = NSSplitView()
     let vectorPDF = NSButton(checkboxWithTitle: "矢量PDF", target: nil, action: nil)
+    private let precisionRow = NSStackView()
     private let precisionLabel = CenteredTextField(labelWithString: "")
     private let resetVector = NSButton(title: "恢复自动", target: nil, action: nil)
     private(set) var referenceWindow: OnlineReferences?
@@ -300,7 +302,9 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         detailHeading.spacing = 7
         originalName.font = .systemFont(ofSize: 11)
         originalName.textColor = .secondaryLabelColor
-        originalName.maximumNumberOfLines = 2
+        originalName.lineBreakMode = .byTruncatingMiddle
+        analysisStatus.font = .systemFont(ofSize: 12)
+        analysisStatus.maximumNumberOfLines = 2
         detailNote.font = .systemFont(ofSize: 11)
         detailNote.textColor = .secondaryLabelColor
         detailNote.maximumNumberOfLines = 3
@@ -327,7 +331,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
             NamingFormLayout.row([button("按当前信息生成引文", #selector(generateCitation)), NSView()]))
         let sourceSection = NamingDisclosure("比对来源",
             body: NamingFormLayout.column([detailNote, evidenceTools, evidence]), expanded: false)
-        let detail = NamingFormLayout.column([originalName] + groups + [NamingFormLayout.line(), sourceSection], spacing: 11)
+        let detail = NamingFormLayout.column([originalName, analysisStatus] + groups + [NamingFormLayout.line(), sourceSection], spacing: 11)
         vectorPDF.target = self
         vectorPDF.action = #selector(vectorChanged)
         resetVector.target = self
@@ -337,11 +341,12 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         precisionLabel.textColor = .secondaryLabelColor
         precisionLabel.lineBreakMode = .byTruncatingTail
         precisionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let precisionRow = NSStackView(views: [vectorPDF, precisionLabel, NSView(), resetVector])
+        for view in [vectorPDF, precisionLabel, NSView(), resetVector] { precisionRow.addArrangedSubview(view) }
         precisionRow.spacing = 8
         let detailScroll = FormScrollView(detail)
         detailScroll.identifier = .init("book-information-form")
         self.detailScroll = detailScroll
+        detailScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 156).isActive = true
         detailScroll.setContentHuggingPriority(.defaultLow, for: .vertical)
         let naming = NamingFormLayout.column([
             NamingFormLayout.row([NamingFormLayout.heading("命名格式"), NSView(), button("管理格式…", #selector(manageTemplates))]),
@@ -453,7 +458,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         max(proposed, splitView === split ? 106 : 340)
     }
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposed: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        let limit = splitView === split ? split.bounds.height - 290 : comparisonSplit.bounds.width - 385
+        let limit = splitView === split ? split.bounds.height - split.dividerThickness - 324 : comparisonSplit.bounds.width - 385
         return min(proposed, limit)
     }
     func splitViewDidResizeSubviews(_ notification: Notification) { fitTableColumns() }
@@ -512,7 +517,14 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         let operation = BlockOperation(); operation.addExecutionBlock { [weak self,weak operation] in
             for (position,input) in inputs.enumerated() {
                 if operation?.isCancelled != false { break }; let (index,url) = input
-                DispatchQueue.main.async { guard let self,!self.closed,self.generation == token else { return }; self.items[index].analysing = true; self.reloadRows(IndexSet(integer:index)) }
+                DispatchQueue.main.async {
+                    guard let self, !self.closed, self.generation == token else { return }
+                    let item = self.items[index]
+                    item.error = nil
+                    item.analysing = true
+                    self.reloadRows(IndexSet(integer: index))
+                    if self.selectedIndex == index { self.updateAnalysisStatus(item) }
+                }
                 let result = Result { try autoreleasepool { try BatchNaming.analyse(url,ocr:ocr,forcePDFOCR:forcePDFOCR,options:options,cancelled:{operation?.isCancelled != false},progress:{ text in
                     DispatchQueue.main.async { guard let self,!self.closed,self.generation == token else { return }; self.note.stringValue = "\(position+1)/\(inputs.count) · \(url.lastPathComponent) · \(text)" }
                 }) } }
@@ -526,7 +538,14 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
             DispatchQueue.main.async { guard let self,!self.closed,self.generation == token else { return }; self.isAnalysing = false; self.note.stringValue = "分析完成：\(self.items.filter{$0.proposal != nil}.count)/\(self.items.count) 本。核对候选、勾选后再应用。"; self.updateControls() }
         }; queue.addOperation(operation)
     }
-    private func stopAnalysis() { generation = UUID(); queue.cancelAllOperations(); isAnalysing = false; for item in items { item.analysing = false }; updateControls() }
+    private func stopAnalysis() {
+        generation = UUID()
+        queue.cancelAllOperations()
+        isAnalysing = false
+        for item in items { item.analysing = false }
+        updateAnalysisStatus(selectedItem)
+        updateControls()
+    }
     @objc func stop() {
         if isApplying { stopRequested = true; note.stringValue = "正在完成当前图书，随后停止；已完成的改名会保留。" }
         else { stopAnalysis(); table.reloadData(); note.stringValue = "已停止分析，已完成的建议保留；可继续分析未完成项。" }
@@ -584,6 +603,7 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
                 ? " · PDF 物理 \(bookPreview.pageCount) 页" : "")
         } ?? ""
         originalName.toolTip = item?.url.path
+        updateAnalysisStatus(item)
         let isFolder = item?.url.hasDirectoryPath == true || (try? item?.url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         let ext = item?.url.pathExtension ?? ""
         nameExtension.stringValue = isFolder || ext.isEmpty ? "" : "." + ext
@@ -608,11 +628,24 @@ final class BatchNamingWindow: NSObject, NSSplitViewDelegate, NSWindowDelegate, 
         updateDetailNote(item)
     }
 
+    private func updateAnalysisStatus(_ item: BatchNamingItem?) {
+        let message: String
+        if let item {
+            if item.proposal != nil { message = "" }
+            else if let error = item.error { message = "分析失败：" + error }
+            else if item.analysing { message = "正在分析这本书…" }
+            else { message = "尚未分析。可使用「分析未完成项」继续。" }
+        } else { message = "从书单选择一本图书。" }
+        analysisStatus.stringValue = message
+        analysisStatus.toolTip = message.isEmpty ? nil : message
+        analysisStatus.textColor = item?.error == nil ? .secondaryLabelColor : .systemRed
+        analysisStatus.isHidden = message.isEmpty
+    }
+
     private func refreshPrecision(_ item: BatchNamingItem?) {
         let pdf = item?.isPDF == true
-        vectorPDF.isHidden = !pdf
-        precisionLabel.isHidden = !pdf
-        resetVector.isHidden = !pdf
+        // Hide the entire row. Its otherwise-empty spacer can take the height of the form.
+        precisionRow.isHidden = !pdf
         vectorPDF.isEnabled = pdf && item?.proposal != nil && item?.outcome == nil && !isApplying
         resetVector.isEnabled = vectorPDF.isEnabled && item?.vectorOverride != nil
         vectorPDF.state = item?.isMarkedVector == true ? .on : .off

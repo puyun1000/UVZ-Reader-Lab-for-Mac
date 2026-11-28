@@ -192,11 +192,27 @@ final class WorkflowUITest:NSObject,NSApplicationDelegate {
                 controller.textView.string = controller.textView.string.replacingOccurrences(of: "原目录", with: "修订目录")
                 controller.saveDraft()
                 stage = 9
-            default:
+            case 9:
                 guard reader.editor == nil, let book = reader.book,
                       book.chapters.map(\.title) == ["自定前言", "修订目录"] else {tick();return}
                 try check(book.pages.count == 8 && book.contentsNotice == nil,
                           "目录编辑保存后自动重读，页数及原前言书签保留")
+                let failures = folder.appendingPathComponent("unreadable")
+                try FileManager.default.createDirectory(at: failures, withIntermediateDirectories: false)
+                try Data("damaged fixture".utf8).write(to: failures.appendingPathComponent("broken.uvz"))
+                let inspector = BatchNamingWindow()
+                batch = inspector
+                inspector.useOCR.state = .off
+                inspector.show()
+                inspector.loadFolder(failures)
+                stage = 10
+            default:
+                guard let batch, !batch.isAnalysing, let item = batch.items.first else { tick(); return }
+                batch.window.contentView?.layoutSubtreeIfNeeded()
+                try check(item.error != nil && batch.analysisStatus.stringValue.hasPrefix("分析失败：") &&
+                          batch.analysisStatus.visibleRect.height > 0 && !batch.fields[1].isEnabled,
+                          "无法读取图书时，图书信息区显示失败原因并禁用编辑")
+                batch.closeWindow()
                 finish();return
             }
             tick()

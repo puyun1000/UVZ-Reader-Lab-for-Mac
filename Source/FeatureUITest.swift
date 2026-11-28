@@ -94,6 +94,21 @@ final class FeatureUITest:NSObject,NSApplicationDelegate {
                 throw ReaderFailure("窄窗口尺寸未通过，书单 \(narrowList)，预览 \(narrowPreview)")
             }
             try check(true, "窄窗口仍同时显示全宽书单与下方原页")
+            func findExpandButton(_ view: NSView) -> NSButton? {
+                if let button = view as? NSButton, button.title == "展开书单" { return button }
+                return view.subviews.lazy.compactMap(findExpandButton).first
+            }
+            guard let expand = findExpandButton(host) else { throw ReaderFailure("缺少展开书单按钮") }
+            expand.performClick(nil)
+            for index in [0, 1, 0] {
+                batch.table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+                batch.window.contentView?.layoutSubtreeIfNeeded()
+                let title = batch.fields[1]
+                try check(!title.isHiddenOrHasHiddenAncestor && title.visibleRect.height >= title.bounds.height - 1 &&
+                          !title.stringValue.isEmpty && batch.vectorPDF.isHiddenOrHasHiddenAncestor == (index == 1),
+                          "窄窗口展开书单并切换 PDF／UVZ 时，图书信息及格式选项正确显示（第 \(index + 1) 行）")
+            }
+            expand.performClick(nil)
             batch.window.setContentSize(normalSize)
             batch.window.contentView?.layoutSubtreeIfNeeded()
             batch.finalName.stringValue = "手工文件名"
